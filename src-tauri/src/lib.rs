@@ -1,4 +1,7 @@
+mod db;
+
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -10,6 +13,7 @@ use tauri::{
     tray::TrayIconBuilder,
     Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent,
 };
+use rusqlite::Connection;
 use tauri_plugin_global_shortcut::{
     Builder as ShortcutBuilder, GlobalShortcutExt, ShortcutState,
 };
@@ -30,7 +34,6 @@ static PANEL_DEBUG_LAST_LOG_MS: AtomicU64 = AtomicU64::new(0);
 static PANEL_DEBUG_RESIZE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 const DEFAULT_PANEL_WIDTH: u32 = 360;
-const TASKS_FILE: &str = "tasks.json";
 const SETTINGS_FILE: &str = "settings.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +48,7 @@ fn default_panel_width() -> u32 {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
-    pub id: String,
+    pub id: i64,
     pub title: String,
     pub done: bool,
 }
@@ -90,10 +93,6 @@ fn panel_log_throttled(app: &tauri::AppHandle, line: &str) {
     panel_log_line(app, line);
 }
 
-fn tasks_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app_data_dir(app)?.join(TASKS_FILE))
-}
-
 fn settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     Ok(app_data_dir(app)?.join(SETTINGS_FILE))
 }
@@ -126,20 +125,38 @@ fn settings_save(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), S
 }
 
 #[tauri::command]
-fn tasks_load(app: tauri::AppHandle) -> Result<Vec<Task>, String> {
-    let path = tasks_path(&app)?;
-    if !path.exists() {
-        return Ok(vec![]);
-    }
-    let raw = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
-    serde_json::from_str(&raw).map_err(|e| e.to_string())
+fn tasks_load(db: tauri::State<'_, Mutex<Connection>>) -> Result<Vec<Task>, String> {
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    db::list_tasks(&conn)
 }
 
 #[tauri::command]
-fn tasks_save(app: tauri::AppHandle, tasks: Vec<Task>) -> Result<(), String> {
-    let path = tasks_path(&app)?;
-    let raw = serde_json::to_string_pretty(&tasks).map_err(|e| e.to_string())?;
-    std::fs::write(&path, raw).map_err(|e| e.to_string())
+fn task_create(
+    db: tauri::State<'_, Mutex<Connection>>,
+    title: String,
+) -> Result<Task, String> {
+    let title = title.trim();
+    if title.is_empty() {
+        return Err("title is empty".to_string());
+    }
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    db::create_task(&conn, title)
+}
+
+#[tauri::command]
+fn task_set_done(
+    db: tauri::State<'_, Mutex<Connection>>,
+    id: i64,
+    done: bool,
+) -> Result<(), String> {
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    db::set_done(&conn, id, done)
+}
+
+#[tauri::command]
+fn task_delete(db: tauri::State<'_, Mutex<Connection>>, id: i64) -> Result<(), String> {
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    db::delete_task(&conn, id)
 }
 
 #[tauri::command]
@@ -341,6 +358,10 @@ pub fn run() {
         .plugin(shortcut_plugin)
         .setup(|app| {
             let handle = app.handle().clone();
+            let data_dir = app_data_dir(&handle)?;
+            let conn = db::open(&data_dir)?;
+            handle.manage(Mutex::new(conn));
+
             let win = app
                 .get_webview_window("main")
                 .expect("main webview window");
@@ -387,7 +408,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             tasks_load,
-            tasks_save,
+            task_create,
+            task_set_done,
+            task_delete,
             reposition_panel
         ])
         .run(tauri::generate_context!())

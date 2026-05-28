@@ -39,9 +39,11 @@
 
 ```text
 %APPDATA%\focus-task-tracker\
-  tasks.json      — список задач
+  tasks.db        — список задач (SQLite)
   settings.json   — ширина панели и прочие параметры
 ```
+
+Рядом с `tasks.db` SQLite может создавать служебные файлы `tasks.db-wal` и `tasks.db-shm` — это нормально.
 
 Путь можно открыть в проводнике: `Win+R` → вставить `%APPDATA%\focus-task-tracker` → Enter.
 

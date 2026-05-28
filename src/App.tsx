@@ -1,9 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import "./App.css";
 
 type Task = {
-  id: string;
+  id: number;
   title: string;
   done: boolean;
 };
@@ -12,10 +12,6 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [draft, setDraft] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
-
-  const persist = useCallback(async (next: Task[]) => {
-    await invoke("tasks_save", { tasks: next });
-  }, []);
 
   useEffect(() => {
     (async () => {
@@ -32,38 +28,39 @@ function App() {
   const addTask = async () => {
     const title = draft.trim();
     if (!title) return;
-    const next: Task[] = [
-      ...tasks,
-      { id: crypto.randomUUID(), title, done: false },
-    ];
-    setTasks(next);
-    setDraft("");
     try {
-      await persist(next);
+      const created = await invoke<Task>("task_create", { title });
+      setTasks((prev) => [...prev, created]);
+      setDraft("");
       setLoadError(null);
     } catch (e) {
       setLoadError(String(e));
     }
   };
 
-  const toggleTask = async (id: string) => {
-    const next = tasks.map((t) =>
-      t.id === id ? { ...t, done: !t.done } : t,
-    );
-    setTasks(next);
+  const toggleTask = async (id: number) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) return;
+    const done = !task.done;
+    const prev = tasks;
+    setTasks((t) => t.map((item) => (item.id === id ? { ...item, done } : item)));
     try {
-      await persist(next);
+      await invoke("task_set_done", { id, done });
+      setLoadError(null);
     } catch (e) {
+      setTasks(prev);
       setLoadError(String(e));
     }
   };
 
-  const removeTask = async (id: string) => {
-    const next = tasks.filter((t) => t.id !== id);
-    setTasks(next);
+  const removeTask = async (id: number) => {
+    const prev = tasks;
+    setTasks((t) => t.filter((item) => item.id !== id));
     try {
-      await persist(next);
+      await invoke("task_delete", { id });
+      setLoadError(null);
     } catch (e) {
+      setTasks(prev);
       setLoadError(String(e));
     }
   };

@@ -1,0 +1,154 @@
+:root {
+  color-scheme: dark;
+  font-family: "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #14161c;
+  color: #e8eaef;
+  overflow: hidden;
+  user-select: none;
+}
+
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  border-left: 1px solid #2a2f3a;
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: #1b1f28;
+  border-bottom: 1px solid #2a2f3a;
+  cursor: default;
+}
+
+.title {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.hint {
+  font-size: 11px;
+  color: #8b93a7;
+}
+
+.error {
+  margin: 8px 12px;
+  padding: 8px;
+  font-size: 12px;
+  color: #ffb4b4;
+  background: #3a1f24;
+  border-radius: 6px;
+}
+
+.composer {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid #2a2f3a;
+}
+
+.composer input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #2f3542;
+  border-radius: 6px;
+  background: #0f1117;
+  color: inherit;
+  outline: none;
+}
+
+.composer input:focus {
+  border-color: #4c6fff;
+}
+
+.composer button {
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  background: #3d5afe;
+  color: #fff;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.composer button:hover {
+  background: #5c77ff;
+}
+
+.task-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.task {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid #222731;
+}
+
+.task:hover {
+  background: #1a1e27;
+}
+
+.task label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  cursor: pointer;
+  user-select: none;
+}
+
+.task-title {
+  flex: 1;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+.task.done .task-title {
+  text-decoration: line-through;
+  color: #7a8299;
+}
+
+.delete {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #8b93a7;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.delete:hover {
+  background: #2a2f3a;
+  color: #ffb4b4;
+}
+
+input[type="checkbox"] {
+  margin-top: 2px;
+  accent-color: #3d5afe;
+}

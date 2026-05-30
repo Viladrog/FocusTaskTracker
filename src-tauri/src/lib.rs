@@ -51,6 +51,7 @@ pub struct Task {
     pub id: i64,
     pub title: String,
     pub done: bool,
+    pub completed_at: Option<String>,
 }
 
 fn app_data_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -148,7 +149,7 @@ fn task_set_done(
     db: tauri::State<'_, Mutex<Connection>>,
     id: i64,
     done: bool,
-) -> Result<(), String> {
+) -> Result<Task, String> {
     let conn = db.lock().map_err(|e| e.to_string())?;
     db::set_done(&conn, id, done)
 }

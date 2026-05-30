@@ -6,7 +6,16 @@ type Task = {
   id: number;
   title: string;
   done: boolean;
+  completed_at: string | null;
 };
+
+function sortTasks(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => {
+    if (a.done !== b.done) return a.done ? 1 : -1;
+    if (!a.done) return b.id - a.id;
+    return (b.completed_at ?? "").localeCompare(a.completed_at ?? "");
+  });
+}
 
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -17,7 +26,7 @@ function App() {
     (async () => {
       try {
         const loaded = await invoke<Task[]>("tasks_load");
-        setTasks(loaded);
+        setTasks(sortTasks(loaded));
         setLoadError(null);
       } catch (e) {
         setLoadError(String(e));
@@ -30,7 +39,7 @@ function App() {
     if (!title) return;
     try {
       const created = await invoke<Task>("task_create", { title });
-      setTasks((prev) => [...prev, created]);
+      setTasks((prev) => sortTasks([...prev, created]));
       setDraft("");
       setLoadError(null);
     } catch (e) {
@@ -43,9 +52,24 @@ function App() {
     if (!task) return;
     const done = !task.done;
     const prev = tasks;
-    setTasks((t) => t.map((item) => (item.id === id ? { ...item, done } : item)));
+    setTasks(
+      sortTasks(
+        tasks.map((item) =>
+          item.id === id
+            ? {
+                ...item,
+                done,
+                completed_at: done ? new Date().toISOString() : null,
+              }
+            : item,
+        ),
+      ),
+    );
     try {
-      await invoke("task_set_done", { id, done });
+      const updated = await invoke<Task>("task_set_done", { id, done });
+      setTasks((current) =>
+        sortTasks(current.map((item) => (item.id === id ? updated : item))),
+      );
       setLoadError(null);
     } catch (e) {
       setTasks(prev);

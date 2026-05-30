@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { useEffect, useState } from "react";
 import "./App.css";
 
@@ -32,6 +33,36 @@ function App() {
         setLoadError(String(e));
       }
     })();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen("tasks-purged", async () => {
+      try {
+        const loaded = await invoke<Task[]>("tasks_load");
+        if (!cancelled) {
+          setTasks(sortTasks(loaded));
+          setLoadError(null);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(String(e));
+        }
+      }
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   const addTask = async () => {

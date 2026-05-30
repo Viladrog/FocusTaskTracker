@@ -11,7 +11,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuEvent, MenuId, MenuItem},
     tray::TrayIconBuilder,
-    Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent,
+    Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent,
 };
 use rusqlite::Connection;
 use tauri_plugin_global_shortcut::{
@@ -35,6 +35,7 @@ static PANEL_DEBUG_RESIZE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 const DEFAULT_PANEL_WIDTH: u32 = 360;
 const SETTINGS_FILE: &str = "settings.json";
+const PURGE_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct AppSettings {
@@ -123,6 +124,39 @@ fn settings_save(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), S
     let path = settings_path(app)?;
     let raw = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
     std::fs::write(&path, raw).map_err(|e| e.to_string())
+}
+
+fn today_local_midnight_boundary_utc() -> String {
+    use chrono::{Local, TimeZone};
+    let today = Local::now().date_naive();
+    let local_midnight = today.and_hms_opt(0, 0, 0).unwrap();
+    let dt = Local.from_local_datetime(&local_midnight).unwrap();
+    dt.with_timezone(&chrono::Utc)
+        .format("%Y-%m-%d %H:%M:%S")
+        .to_string()
+}
+
+fn purge_completed_tasks(db: &Mutex<Connection>) -> Result<usize, String> {
+    let boundary = today_local_midnight_boundary_utc();
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    db::purge_completed_before(&conn, &boundary)
+}
+
+fn spawn_purge_scheduler(app: tauri::AppHandle) {
+    thread::spawn(move || {
+        loop {
+            thread::sleep(PURGE_INTERVAL);
+            if APP_EXITING.load(Ordering::SeqCst) {
+                break;
+            }
+            let db = app.state::<Mutex<Connection>>();
+            if let Ok(n) = purge_completed_tasks(&db) {
+                if n > 0 {
+                    let _ = app.emit("tasks-purged", ());
+                }
+            }
+        }
+    });
 }
 
 #[tauri::command]
@@ -361,7 +395,10 @@ pub fn run() {
             let handle = app.handle().clone();
             let data_dir = app_data_dir(&handle)?;
             let conn = db::open(&data_dir)?;
+            let boundary = today_local_midnight_boundary_utc();
+            let _ = db::purge_completed_before(&conn, &boundary);
             handle.manage(Mutex::new(conn));
+            spawn_purge_scheduler(handle.clone());
 
             let win = app
                 .get_webview_window("main")

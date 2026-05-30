@@ -117,6 +117,20 @@ pub fn delete_task(conn: &Connection, id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// Removes completed tasks with `completed_at` strictly before `boundary`.
+/// `boundary` must be `"YYYY-MM-DD HH:MM:SS"` (UTC), matching SQLite `datetime('now')`.
+pub fn purge_completed_before(conn: &Connection, boundary: &str) -> Result<usize, String> {
+    conn.execute(
+        "DELETE FROM tasks
+         WHERE done = 1
+           AND completed_at IS NOT NULL
+           AND completed_at < ?1",
+        params![boundary],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(conn.changes() as usize)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +171,49 @@ mod tests {
         create_task(&conn, "b").unwrap();
         let tasks = list_tasks(&conn).unwrap();
         assert_eq!(tasks.len(), 2);
+    }
+
+    fn insert_task(conn: &Connection, title: &str, done: bool, completed_at: Option<&str>) {
+        conn.execute(
+            "INSERT INTO tasks (title, done, completed_at) VALUES (?1, ?2, ?3)",
+            params![title, if done { 1 } else { 0 }, completed_at],
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn purge_removes_old_completed() {
+        let conn = test_conn();
+        insert_task(&conn, "old", true, Some("2026-05-29 10:00:00"));
+        let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(list_tasks(&conn).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn purge_keeps_today_completed() {
+        let conn = test_conn();
+        insert_task(&conn, "today", true, Some("2026-05-30 08:00:00"));
+        let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(list_tasks(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn purge_keeps_active() {
+        let conn = test_conn();
+        insert_task(&conn, "active", false, None);
+        let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(list_tasks(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn purge_skips_null_completed_at() {
+        let conn = test_conn();
+        insert_task(&conn, "no date", true, None);
+        let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
+        assert_eq!(deleted, 0);
+        assert_eq!(list_tasks(&conn).unwrap().len(), 1);
     }
 }

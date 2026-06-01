@@ -407,7 +407,15 @@ function App() {
     <div className="app">
       <header className="titlebar" data-tauri-drag-region>
         <span className="title">Задачи</span>
-        <span className="hint">Ctrl+Shift+Space</span>
+        <button
+          type="button"
+          className="hint"
+          data-tauri-drag-region={false}
+          title="Скрыть или показать панель"
+          onClick={() => void invoke("panel_toggle")}
+        >
+          Ctrl+Shift+Space
+        </button>
       </header>
 
       {loadError ? <p className="error">{loadError}</p> : null}

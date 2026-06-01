@@ -41,8 +41,18 @@ body {
 }
 
 .hint {
+  margin: 0;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  font: inherit;
   font-size: 11px;
   color: #8b93a7;
+  cursor: pointer;
+}
+
+.hint:hover {
+  color: #b8bfd0;
 }
 
 .error {

@@ -359,6 +359,11 @@ fn toggle_window(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn panel_toggle(app: tauri::AppHandle) {
+    toggle_window(&app);
+}
+
 fn show_window(app: &tauri::AppHandle) {
     if let Some(win) = app.get_webview_window("main") {
         let _ = place_panel_window(&win, app);
@@ -471,7 +476,8 @@ pub fn run() {
             task_set_done,
             task_delete,
             task_move_active,
-            reposition_panel
+            reposition_panel,
+            panel_toggle
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -17,8 +17,100 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import "./App.css";
+
+type DeleteConfirmState = {
+  taskId: number;
+  anchor: DOMRect;
+};
+
+type DeleteConfirmPlacement = "left" | "right";
+
+function getDeleteConfirmPosition(
+  anchor: DOMRect,
+  width: number,
+  height: number,
+): { top: number; left: number; placement: DeleteConfirmPlacement; tailTop: number } {
+  const margin = 8;
+  const gap = 8;
+  const tailInset = 14;
+
+  let placement: DeleteConfirmPlacement = "left";
+  let left = anchor.left - width - gap;
+  let top = anchor.bottom - height;
+
+  if (left < margin) {
+    placement = "right";
+    left = anchor.right + gap;
+  }
+
+  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+  top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
+
+  const anchorCenterY = anchor.top + anchor.height / 2;
+  const tailTop = Math.max(
+    tailInset,
+    Math.min(anchorCenterY - top, height - tailInset),
+  );
+
+  return { top, left, placement, tailTop };
+}
+
+function DeleteConfirmPopover({
+  anchor,
+  onConfirm,
+  onCancel,
+}: {
+  anchor: DOMRect;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState(() =>
+    getDeleteConfirmPosition(anchor, 168, 72),
+  );
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { width, height } = el.getBoundingClientRect();
+    setPos(getDeleteConfirmPosition(anchor, width, height));
+  }, [anchor]);
+
+  return (
+    <div
+      ref={ref}
+      className="delete-confirm"
+      role="dialog"
+      aria-labelledby="delete-confirm-text"
+      data-placement={pos.placement}
+      style={
+        {
+          top: pos.top,
+          left: pos.left,
+          "--tail-top": `${pos.tailTop}px`,
+        } as React.CSSProperties
+      }
+    >
+      <p id="delete-confirm-text" className="delete-confirm-text">
+        Вы уверены, что хотите удалить задачу?
+      </p>
+      <div className="delete-confirm-actions">
+        <button type="button" className="delete-confirm-no" onClick={onCancel}>
+          Отмена
+        </button>
+        <button
+          type="button"
+          className="delete-confirm-yes"
+          onClick={onConfirm}
+        >
+          Да
+        </button>
+      </div>
+    </div>
+  );
+}
 
 type Task = {
   id: number;
@@ -48,11 +140,11 @@ function orderTasks(tasks: Task[]): Task[] {
 function SortableActiveRow({
   task,
   onToggle,
-  onDelete,
+  onDeleteRequest,
 }: {
   task: Task;
   onToggle: (id: number) => void;
-  onDelete: (id: number) => void;
+  onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
 }) {
   const {
     attributes,
@@ -90,7 +182,7 @@ function SortableActiveRow({
         onPointerDown={(e) => e.stopPropagation()}
         onClick={(e) => {
           e.stopPropagation();
-          onDelete(task.id);
+          onDeleteRequest(task.id, e.currentTarget);
         }}
         aria-label="Удалить"
       >
@@ -103,11 +195,11 @@ function SortableActiveRow({
 function DoneRow({
   task,
   onToggle,
-  onDelete,
+  onDeleteRequest,
 }: {
   task: Task;
   onToggle: (id: number) => void;
-  onDelete: (id: number) => void;
+  onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
 }) {
   return (
     <li className="task done">
@@ -120,7 +212,7 @@ function DoneRow({
       <button
         type="button"
         className="delete"
-        onClick={() => onDelete(task.id)}
+        onClick={(e) => onDeleteRequest(task.id, e.currentTarget)}
         aria-label="Удалить"
       >
         ×
@@ -133,6 +225,10 @@ function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [draft, setDraft] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(
+    null,
+  );
+  const deleteConfirmRef = useRef<HTMLDivElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -229,6 +325,36 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    if (!deleteConfirm) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setDeleteConfirm(null);
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (deleteConfirmRef.current?.contains(target)) return;
+      if ((target as Element).closest?.(".delete")) return;
+      setDeleteConfirm(null);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [deleteConfirm]);
+
+  const requestDelete = (id: number, button: HTMLButtonElement) => {
+    if (deleteConfirm?.taskId === id) {
+      setDeleteConfirm(null);
+      return;
+    }
+    setDeleteConfirm({ taskId: id, anchor: button.getBoundingClientRect() });
+  };
+
   const removeTask = async (id: number) => {
     const prev = tasks;
     setTasks((t) => t.filter((item) => item.id !== id));
@@ -317,7 +443,7 @@ function App() {
                   key={t.id}
                   task={t}
                   onToggle={toggleTask}
-                  onDelete={removeTask}
+                  onDeleteRequest={requestDelete}
                 />
               ))}
             </ul>
@@ -328,12 +454,26 @@ function App() {
                 key={t.id}
                 task={t}
                 onToggle={toggleTask}
-                onDelete={removeTask}
+                onDeleteRequest={requestDelete}
               />
             ))}
           </ul>
         </DndContext>
       </div>
+
+      {deleteConfirm ? (
+        <div ref={deleteConfirmRef}>
+          <DeleteConfirmPopover
+            anchor={deleteConfirm.anchor}
+            onCancel={() => setDeleteConfirm(null)}
+            onConfirm={() => {
+              const id = deleteConfirm.taskId;
+              setDeleteConfirm(null);
+              void removeTask(id);
+            }}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

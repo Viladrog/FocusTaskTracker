@@ -146,6 +146,83 @@ body {
   color: #ffb4b4;
 }
 
+.delete-confirm {
+  position: fixed;
+  z-index: 1000;
+  width: max-content;
+  max-width: min(168px, calc(100vw - 16px));
+  padding: 8px 10px;
+  background: #1b1f28;
+  border: 1px solid #2a2f3a;
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
+
+.delete-confirm::before {
+  content: "";
+  position: absolute;
+  top: var(--tail-top, 50%);
+  width: 8px;
+  height: 8px;
+  background: #1b1f28;
+  border: 1px solid #2a2f3a;
+  transform: translateY(-50%) rotate(45deg);
+  pointer-events: none;
+}
+
+.delete-confirm[data-placement="left"]::before {
+  right: -5px;
+  border-bottom: none;
+  border-left: none;
+}
+
+.delete-confirm[data-placement="right"]::before {
+  left: -5px;
+  border-top: none;
+  border-right: none;
+}
+
+.delete-confirm-text {
+  margin: 0 0 8px;
+  font-size: 12px;
+  line-height: 1.35;
+  color: #e8eaef;
+}
+
+.delete-confirm-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.delete-confirm-no,
+.delete-confirm-yes {
+  padding: 4px 10px;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.2;
+}
+
+.delete-confirm-no {
+  background: #2a2f3a;
+  color: #c5cad8;
+}
+
+.delete-confirm-no:hover {
+  background: #353b4a;
+}
+
+.delete-confirm-yes {
+  background: #3d5afe;
+  color: #fff;
+}
+
+.delete-confirm-yes:hover {
+  background: #5c77ff;
+}
+
 input[type="checkbox"] {
   flex-shrink: 0;
   margin-top: 2px;

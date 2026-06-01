@@ -53,6 +53,13 @@ pub struct Task {
     pub title: String,
     pub done: bool,
     pub completed_at: Option<String>,
+    pub position: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskMoveResult {
+    pub task: Task,
+    pub rebalanced: bool,
 }
 
 fn app_data_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
@@ -192,6 +199,20 @@ fn task_set_done(
 fn task_delete(db: tauri::State<'_, Mutex<Connection>>, id: i64) -> Result<(), String> {
     let conn = db.lock().map_err(|e| e.to_string())?;
     db::delete_task(&conn, id)
+}
+
+#[tauri::command]
+fn task_move_active(
+    db: tauri::State<'_, Mutex<Connection>>,
+    id: i64,
+    new_index: usize,
+) -> Result<TaskMoveResult, String> {
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    let result = db::move_active_to_index(&conn, id, new_index)?;
+    Ok(TaskMoveResult {
+        task: result.task,
+        rebalanced: result.rebalanced,
+    })
 }
 
 #[tauri::command]
@@ -449,6 +470,7 @@ pub fn run() {
             task_create,
             task_set_done,
             task_delete,
+            task_move_active,
             reposition_panel
         ])
         .run(tauri::generate_context!())

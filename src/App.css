@@ -91,11 +91,14 @@ body {
 }
 
 .task-list {
-  list-style: none;
-  margin: 0;
-  padding: 8px 0;
   overflow-y: auto;
   flex: 1;
+}
+
+.task-section {
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .task {
@@ -110,13 +113,9 @@ body {
   background: #1a1e27;
 }
 
-.task label {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  flex: 1;
-  cursor: pointer;
-  user-select: none;
+.task-dragging {
+  opacity: 0.55;
+  background: #1a1e27;
 }
 
 .task-title {
@@ -140,7 +139,6 @@ body {
   color: #8b93a7;
   font-size: 18px;
   line-height: 1;
-  cursor: pointer;
 }
 
 .delete:hover {
@@ -149,6 +147,7 @@ body {
 }
 
 input[type="checkbox"] {
+  flex-shrink: 0;
   margin-top: 2px;
   accent-color: #3d5afe;
 }

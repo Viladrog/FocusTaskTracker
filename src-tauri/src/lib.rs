@@ -1,4 +1,8 @@
 mod db;
+mod panel_layout;
+mod purge_boundary;
+mod settings;
+mod title_validation;
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
@@ -33,19 +37,9 @@ static PANEL_DEBUG_LAST_LOG_MS: AtomicU64 = AtomicU64::new(0);
 /// Counts resize events for correlation.
 static PANEL_DEBUG_RESIZE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-const DEFAULT_PANEL_WIDTH: u32 = 360;
-const SETTINGS_FILE: &str = "settings.json";
+use settings::{AppSettings, DEFAULT_PANEL_WIDTH};
+
 const PURGE_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct AppSettings {
-    #[serde(default = "default_panel_width")]
-    panel_width: u32,
-}
-
-fn default_panel_width() -> u32 {
-    DEFAULT_PANEL_WIDTH
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
@@ -102,49 +96,22 @@ fn panel_log_throttled(app: &tauri::AppHandle, line: &str) {
     panel_log_line(app, line);
 }
 
-fn settings_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app_data_dir(app)?.join(SETTINGS_FILE))
-}
-
 fn settings_load(app: &tauri::AppHandle) -> AppSettings {
-    let Ok(path) = settings_path(app) else {
+    let Ok(dir) = app_data_dir(app) else {
         return AppSettings {
             panel_width: DEFAULT_PANEL_WIDTH,
         };
     };
-    if !path.exists() {
-        return AppSettings {
-            panel_width: DEFAULT_PANEL_WIDTH,
-        };
-    }
-    let Ok(raw) = std::fs::read_to_string(&path) else {
-        return AppSettings {
-            panel_width: DEFAULT_PANEL_WIDTH,
-        };
-    };
-    serde_json::from_str(&raw).unwrap_or(AppSettings {
-        panel_width: DEFAULT_PANEL_WIDTH,
-    })
+    settings::settings_load_from_dir(&dir)
 }
 
 fn settings_save(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), String> {
-    let path = settings_path(app)?;
-    let raw = serde_json::to_string_pretty(settings).map_err(|e| e.to_string())?;
-    std::fs::write(&path, raw).map_err(|e| e.to_string())
-}
-
-fn today_local_midnight_boundary_utc() -> String {
-    use chrono::{Local, TimeZone};
-    let today = Local::now().date_naive();
-    let local_midnight = today.and_hms_opt(0, 0, 0).unwrap();
-    let dt = Local.from_local_datetime(&local_midnight).unwrap();
-    dt.with_timezone(&chrono::Utc)
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string()
+    let dir = app_data_dir(app)?;
+    settings::settings_save_to_dir(&dir, settings)
 }
 
 fn purge_completed_tasks(db: &Mutex<Connection>) -> Result<usize, String> {
-    let boundary = today_local_midnight_boundary_utc();
+    let boundary = purge_boundary::today_local_midnight_boundary_utc();
     let conn = db.lock().map_err(|e| e.to_string())?;
     db::purge_completed_before(&conn, &boundary)
 }
@@ -177,10 +144,7 @@ fn task_create(
     db: tauri::State<'_, Mutex<Connection>>,
     title: String,
 ) -> Result<Task, String> {
-    let title = title.trim();
-    if title.is_empty() {
-        return Err("title is empty".to_string());
-    }
+    let title = title_validation::normalize_task_title(&title)?;
     let conn = db.lock().map_err(|e| e.to_string())?;
     db::create_task(&conn, title)
 }
@@ -229,7 +193,7 @@ fn anchor_panel_right(win: &WebviewWindow) -> Result<(), String> {
     let wa = monitor.work_area();
     let size = win.outer_size().map_err(|e| e.to_string())?;
     let pos = win.outer_position().map_err(|e| e.to_string())?;
-    let x = wa.position.x + wa.size.width as i32 - size.width as i32;
+    let x = panel_layout::panel_anchor_x(wa.position.x, wa.size.width, size.width);
     let y = wa.position.y;
 
     if pos.x == x && pos.y == y {
@@ -246,7 +210,7 @@ fn place_panel_window(win: &WebviewWindow, app: &tauri::AppHandle) -> Result<(),
     let monitor = pick_monitor(win)?;
     let wa = monitor.work_area();
     let width = settings_load(app).panel_width;
-    let x = wa.position.x + wa.size.width as i32 - width as i32;
+    let x = panel_layout::panel_place_x(wa.position.x, wa.size.width, width);
     let y = wa.position.y;
     let height = wa.size.height.max(200);
 
@@ -421,7 +385,7 @@ pub fn run() {
             let handle = app.handle().clone();
             let data_dir = app_data_dir(&handle)?;
             let conn = db::open(&data_dir)?;
-            let boundary = today_local_midnight_boundary_utc();
+            let boundary = purge_boundary::today_local_midnight_boundary_utc();
             let _ = db::purge_completed_before(&conn, &boundary);
             handle.manage(Mutex::new(conn));
             spawn_purge_scheduler(handle.clone());

@@ -129,7 +129,7 @@ pub fn rebalance_active_positions(conn: &Connection) -> Result<(), String> {
     Ok(())
 }
 
-fn assign_position_between(before: Option<f64>, after: Option<f64>) -> f64 {
+pub(crate) fn assign_position_between(before: Option<f64>, after: Option<f64>) -> f64 {
     match (before, after) {
         (None, None) => 1.0,
         (None, Some(a)) => a + 1.0,
@@ -142,6 +142,7 @@ fn needs_rebalance(before: f64, after: f64, new_pos: f64) -> bool {
     (after - before).abs() < POSITION_EPS || new_pos == before || new_pos == after
 }
 
+#[derive(Debug)]
 pub struct MoveActiveResult {
     pub task: Task,
     /// True when `rebalance_active_positions` ran (all active `position` values changed).
@@ -391,5 +392,133 @@ mod tests {
         let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(list_tasks(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn delete_task_removes_row() {
+        let conn = test_conn();
+        let task = create_task(&conn, "gone").unwrap();
+        delete_task(&conn, task.id).unwrap();
+        assert!(fetch_task(&conn, task.id).is_err());
+    }
+
+    #[test]
+    fn delete_task_not_found() {
+        let conn = test_conn();
+        assert_eq!(
+            delete_task(&conn, 999),
+            Err("task not found".to_string())
+        );
+    }
+
+    #[test]
+    fn set_done_not_found() {
+        let conn = test_conn();
+        assert_eq!(
+            set_done(&conn, 999, true).unwrap_err(),
+            "task not found".to_string()
+        );
+    }
+
+    #[test]
+    fn fetch_task_not_found() {
+        let conn = test_conn();
+        assert!(fetch_task(&conn, 999).is_err());
+    }
+
+    #[test]
+    fn open_applies_migrations() {
+        let dir = tempfile::tempdir().unwrap();
+        let conn = open(dir.path()).unwrap();
+        assert!(column_exists(&conn, "completed_at").unwrap());
+        assert!(column_exists(&conn, "position").unwrap());
+        assert!(dir.path().join(DB_FILE).exists());
+        drop(conn);
+    }
+
+    #[test]
+    fn list_active_sorted_by_position_desc() {
+        let conn = test_conn();
+        let a = create_task(&conn, "a").unwrap();
+        let b = create_task(&conn, "b").unwrap();
+        conn.execute(
+            "UPDATE tasks SET position = 1.0 WHERE id = ?1",
+            params![a.id],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE tasks SET position = 2.0 WHERE id = ?1",
+            params![b.id],
+        )
+        .unwrap();
+        let list = list_tasks(&conn).unwrap();
+        let active: Vec<_> = list.iter().filter(|t| !t.done).collect();
+        assert_eq!(active[0].id, b.id);
+        assert_eq!(active[1].id, a.id);
+    }
+
+    #[test]
+    fn list_done_sorted_by_completed_at_desc() {
+        let conn = test_conn();
+        insert_task(&conn, "old", true, Some("2026-05-28 10:00:00"));
+        insert_task(&conn, "new", true, Some("2026-05-30 10:00:00"));
+        let list = list_tasks(&conn).unwrap();
+        let done: Vec<_> = list.iter().filter(|t| t.done).collect();
+        assert_eq!(done.len(), 2);
+        assert_eq!(done[0].title, "new");
+        assert_eq!(done[1].title, "old");
+    }
+
+    #[test]
+    fn move_active_rejects_done_task() {
+        let conn = test_conn();
+        let task = create_task(&conn, "x").unwrap();
+        set_done(&conn, task.id, true).unwrap();
+        assert_eq!(
+            move_active_to_index(&conn, task.id, 0).unwrap_err(),
+            "task is not active".to_string()
+        );
+    }
+
+    #[test]
+    fn move_active_to_index_clamps_to_end() {
+        let conn = test_conn();
+        let a = create_task(&conn, "a").unwrap();
+        let _b = create_task(&conn, "b").unwrap();
+        let _c = create_task(&conn, "c").unwrap();
+        move_active_to_index(&conn, a.id, 100).unwrap();
+        let list = list_tasks(&conn).unwrap();
+        let active: Vec<_> = list.iter().filter(|t| !t.done).collect();
+        assert_eq!(active.last().unwrap().id, a.id);
+    }
+
+    #[test]
+    fn rebalance_reassigns_sequential_positions() {
+        let conn = test_conn();
+        let a = create_task(&conn, "a").unwrap();
+        let b = create_task(&conn, "b").unwrap();
+        conn.execute(
+            "UPDATE tasks SET position = 1.0 WHERE id = ?1",
+            params![a.id],
+        )
+        .unwrap();
+        conn.execute(
+            "UPDATE tasks SET position = 2.0 WHERE id = ?1",
+            params![b.id],
+        )
+        .unwrap();
+        rebalance_active_positions(&conn).unwrap();
+        let a_after = fetch_task(&conn, a.id).unwrap();
+        let b_after = fetch_task(&conn, b.id).unwrap();
+        assert_eq!(b_after.position, 2.0);
+        assert_eq!(a_after.position, 1.0);
+    }
+
+    #[test]
+    fn assign_position_between_cases() {
+        assert_eq!(assign_position_between(None, None), 1.0);
+        assert_eq!(assign_position_between(None, Some(5.0)), 6.0);
+        assert_eq!(assign_position_between(Some(3.0), None), 2.0);
+        assert_eq!(assign_position_between(Some(3.0), Some(5.0)), 4.0);
     }
 }

@@ -18,44 +18,14 @@ import { CSS } from "@dnd-kit/utilities";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getDeleteConfirmPosition } from "./lib/deleteConfirmPosition";
+import { orderTasks, type Task } from "./lib/orderTasks";
 import "./App.css";
 
 type DeleteConfirmState = {
   taskId: number;
   anchor: DOMRect;
 };
-
-type DeleteConfirmPlacement = "left" | "right";
-
-function getDeleteConfirmPosition(
-  anchor: DOMRect,
-  width: number,
-  height: number,
-): { top: number; left: number; placement: DeleteConfirmPlacement; tailTop: number } {
-  const margin = 8;
-  const gap = 8;
-  const tailInset = 14;
-
-  let placement: DeleteConfirmPlacement = "left";
-  let left = anchor.left - width - gap;
-  let top = anchor.bottom - height;
-
-  if (left < margin) {
-    placement = "right";
-    left = anchor.right + gap;
-  }
-
-  left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
-  top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
-
-  const anchorCenterY = anchor.top + anchor.height / 2;
-  const tailTop = Math.max(
-    tailInset,
-    Math.min(anchorCenterY - top, height - tailInset),
-  );
-
-  return { top, left, placement, tailTop };
-}
 
 function DeleteConfirmPopover({
   anchor,
@@ -68,14 +38,28 @@ function DeleteConfirmPopover({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState(() =>
-    getDeleteConfirmPosition(anchor, 168, 72),
+    getDeleteConfirmPosition(
+      anchor,
+      168,
+      72,
+      window.innerWidth,
+      window.innerHeight,
+    ),
   );
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     const { width, height } = el.getBoundingClientRect();
-    setPos(getDeleteConfirmPosition(anchor, width, height));
+    setPos(
+      getDeleteConfirmPosition(
+        anchor,
+        width,
+        height,
+        window.innerWidth,
+        window.innerHeight,
+      ),
+    );
   }, [anchor]);
 
   return (
@@ -112,30 +96,10 @@ function DeleteConfirmPopover({
   );
 }
 
-type Task = {
-  id: number;
-  title: string;
-  done: boolean;
-  completed_at: string | null;
-  position: number;
-};
-
 type TaskMoveResult = {
   task: Task;
   rebalanced: boolean;
 };
-
-function orderTasks(tasks: Task[]): Task[] {
-  const active = tasks
-    .filter((t) => !t.done)
-    .sort((a, b) => b.position - a.position);
-  const done = tasks
-    .filter((t) => t.done)
-    .sort((a, b) =>
-      (b.completed_at ?? "").localeCompare(a.completed_at ?? ""),
-    );
-  return [...active, ...done];
-}
 
 function SortableActiveRow({
   task,

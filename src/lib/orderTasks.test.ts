@@ -5,6 +5,7 @@ function task(partial: Partial<Task> & Pick<Task, "id" | "title" | "done">): Tas
   return {
     completed_at: null,
     position: partial.id,
+    created_at: "2026-01-01 00:00:00",
     ...partial,
   };
 }

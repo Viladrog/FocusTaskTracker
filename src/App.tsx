@@ -20,6 +20,7 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDeleteConfirmPosition } from "./lib/deleteConfirmPosition";
 import { orderTasks, type Task } from "./lib/orderTasks";
+import { formatTaskDateTime } from "./lib/formatTaskDateTime";
 import "./App.css";
 
 type DeleteConfirmState = {
@@ -128,20 +129,27 @@ function TaskEditZone({
 
   return (
     <div className="task-edit-zone">
-      {isEditing ? (
-        <input
-          ref={inputRef}
-          type="text"
-          className="task-title-input"
-          value={editDraft}
-          onChange={(e) => onEditDraftChange(e.target.value)}
-          onKeyDown={(e) => onEditKeyDown(e, task.id)}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => e.stopPropagation()}
-        />
-      ) : (
-        <span className="task-title">{task.title}</span>
-      )}
+      <div className="task-text-block">
+        {isEditing ? (
+          <input
+            ref={inputRef}
+            type="text"
+            className="task-title-input"
+            value={editDraft}
+            onChange={(e) => onEditDraftChange(e.target.value)}
+            onKeyDown={(e) => onEditKeyDown(e, task.id)}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
+          />
+        ) : (
+          <>
+            <span className="task-title">{task.title}</span>
+            <span className="task-created-at">
+              {formatTaskDateTime(task.created_at)}
+            </span>
+          </>
+        )}
+      </div>
       <button
         type="button"
         className="edit"

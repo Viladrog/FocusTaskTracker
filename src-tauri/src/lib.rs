@@ -48,6 +48,7 @@ pub struct Task {
     pub done: bool,
     pub completed_at: Option<String>,
     pub position: f64,
+    pub created_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

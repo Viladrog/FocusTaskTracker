@@ -4,6 +4,7 @@ export type Task = {
   done: boolean;
   completed_at: string | null;
   position: number;
+  created_at: string;
 };
 
 export function orderTasks(tasks: Task[]): Task[] {

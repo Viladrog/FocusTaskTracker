@@ -59,6 +59,17 @@ fn migrate(conn: &Connection) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     }
 
+    if !column_exists(conn, "created_at")? {
+        conn.execute("ALTER TABLE tasks ADD COLUMN created_at TEXT", [])
+            .map_err(|e| e.to_string())?;
+    }
+
+    conn.execute(
+        "UPDATE tasks SET created_at = datetime('now') WHERE created_at IS NULL",
+        [],
+    )
+    .map_err(|e| e.to_string())?;
+
     Ok(())
 }
 
@@ -69,13 +80,14 @@ fn row_to_task(row: &Row<'_>) -> rusqlite::Result<Task> {
         done: row.get::<_, i32>(2)? != 0,
         completed_at: row.get(3)?,
         position: row.get(4)?,
+        created_at: row.get(5)?,
     })
 }
 
 pub fn list_tasks(conn: &Connection) -> Result<Vec<Task>, String> {
     let mut stmt = conn
         .prepare(
-            "SELECT id, title, done, completed_at, position
+            "SELECT id, title, done, completed_at, position, created_at
              FROM tasks
              ORDER BY done ASC,
                       CASE WHEN done = 0 THEN position ELSE 0 END DESC,
@@ -91,7 +103,7 @@ pub fn list_tasks(conn: &Connection) -> Result<Vec<Task>, String> {
 
 pub fn fetch_task(conn: &Connection, id: i64) -> Result<Task, String> {
     conn.query_row(
-        "SELECT id, title, done, completed_at, position FROM tasks WHERE id = ?1",
+        "SELECT id, title, done, completed_at, position, created_at FROM tasks WHERE id = ?1",
         params![id],
         row_to_task,
     )
@@ -165,7 +177,7 @@ pub fn move_active_to_index(
     for _ in 0..3 {
         let actives: Vec<Task> = conn
             .prepare(
-                "SELECT id, title, done, completed_at, position
+                "SELECT id, title, done, completed_at, position, created_at
                  FROM tasks WHERE done = 0 ORDER BY position DESC",
             )
             .map_err(|e| e.to_string())?
@@ -214,7 +226,10 @@ pub fn move_active_to_index(
 }
 
 pub fn create_task(conn: &Connection, title: &str) -> Result<Task, String> {
-    conn.execute("INSERT INTO tasks (title, done, position) VALUES (?1, 0, 0)", params![title])
+    conn.execute(
+        "INSERT INTO tasks (title, done, position, created_at) VALUES (?1, 0, 0, datetime('now'))",
+        params![title],
+    )
         .map_err(|e| e.to_string())?;
     let id = conn.last_insert_rowid();
     conn.execute(
@@ -413,6 +428,7 @@ mod tests {
         assert_eq!(updated.done, task.done);
         assert_eq!(updated.position, task.position);
         assert_eq!(updated.completed_at, task.completed_at);
+        assert_eq!(updated.created_at, task.created_at);
     }
 
     #[test]
@@ -473,6 +489,7 @@ mod tests {
         let conn = open(dir.path()).unwrap();
         assert!(column_exists(&conn, "completed_at").unwrap());
         assert!(column_exists(&conn, "position").unwrap());
+        assert!(column_exists(&conn, "created_at").unwrap());
         assert!(dir.path().join(DB_FILE).exists());
         drop(conn);
     }
@@ -561,5 +578,56 @@ mod tests {
         assert_eq!(assign_position_between(None, Some(5.0)), 6.0);
         assert_eq!(assign_position_between(Some(3.0), None), 2.0);
         assert_eq!(assign_position_between(Some(3.0), Some(5.0)), 4.0);
+    }
+
+    #[test]
+    fn migrate_adds_created_at_and_backfills() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE tasks (
+                 id    INTEGER PRIMARY KEY AUTOINCREMENT,
+                 title TEXT NOT NULL,
+                 done  INTEGER NOT NULL CHECK (done IN (0, 1)),
+                 completed_at TEXT,
+                 position REAL NOT NULL DEFAULT 0
+             );",
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO tasks (title, done, position) VALUES ('legacy', 0, 1.0)",
+            [],
+        )
+        .unwrap();
+        migrate(&conn).unwrap();
+        assert!(column_exists(&conn, "created_at").unwrap());
+        let task = fetch_task(&conn, 1).unwrap();
+        assert!(task.created_at.is_some());
+    }
+
+    #[test]
+    fn create_task_sets_created_at() {
+        let conn = test_conn();
+        let task = create_task(&conn, "new").unwrap();
+        assert!(task.created_at.is_some());
+    }
+
+    #[test]
+    fn set_done_does_not_change_created_at() {
+        let conn = test_conn();
+        let task = create_task(&conn, "x").unwrap();
+        let created = task.created_at.clone();
+        let done = set_done(&conn, task.id, true).unwrap();
+        assert_eq!(done.created_at, created);
+        let undone = set_done(&conn, task.id, false).unwrap();
+        assert_eq!(undone.created_at, created);
+    }
+
+    #[test]
+    fn update_task_title_does_not_change_created_at() {
+        let conn = test_conn();
+        let task = create_task(&conn, "old").unwrap();
+        let created = task.created_at.clone();
+        let updated = update_task_title(&conn, task.id, "new").unwrap();
+        assert_eq!(updated.created_at, created);
     }
 }

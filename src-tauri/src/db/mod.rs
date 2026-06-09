@@ -52,11 +52,8 @@ fn migrate(conn: &Connection) -> Result<(), String> {
             [],
         )
         .map_err(|e| e.to_string())?;
-        conn.execute(
-            "UPDATE tasks SET position = CAST(id AS REAL)",
-            [],
-        )
-        .map_err(|e| e.to_string())?;
+        conn.execute("UPDATE tasks SET position = CAST(id AS REAL)", [])
+            .map_err(|e| e.to_string())?;
     }
 
     if !column_exists(conn, "created_at")? {
@@ -94,9 +91,7 @@ pub fn list_tasks(conn: &Connection) -> Result<Vec<Task>, String> {
                       CASE WHEN done = 1 THEN completed_at ELSE '' END DESC",
         )
         .map_err(|e| e.to_string())?;
-    let rows = stmt
-        .query_map([], row_to_task)
-        .map_err(|e| e.to_string())?;
+    let rows = stmt.query_map([], row_to_task).map_err(|e| e.to_string())?;
     rows.collect::<Result<Vec<_>, _>>()
         .map_err(|e| e.to_string())
 }
@@ -112,9 +107,7 @@ pub fn fetch_task(conn: &Connection, id: i64) -> Result<Task, String> {
 
 fn list_active_ids_by_position(conn: &Connection) -> Result<Vec<i64>, String> {
     let mut stmt = conn
-        .prepare(
-            "SELECT id FROM tasks WHERE done = 0 ORDER BY position DESC",
-        )
+        .prepare("SELECT id FROM tasks WHERE done = 0 ORDER BY position DESC")
         .map_err(|e| e.to_string())?;
     let rows = stmt
         .query_map([], |row| row.get(0))
@@ -125,9 +118,7 @@ fn list_active_ids_by_position(conn: &Connection) -> Result<Vec<i64>, String> {
 
 pub fn rebalance_active_positions(conn: &Connection) -> Result<(), String> {
     let ids = list_active_ids_by_position(conn)?;
-    let tx = conn
-        .unchecked_transaction()
-        .map_err(|e| e.to_string())?;
+    let tx = conn.unchecked_transaction().map_err(|e| e.to_string())?;
     let n = ids.len() as f64;
     for (i, id) in ids.iter().enumerate() {
         let pos = n - i as f64;
@@ -230,7 +221,7 @@ pub fn create_task(conn: &Connection, title: &str) -> Result<Task, String> {
         "INSERT INTO tasks (title, done, position, created_at) VALUES (?1, 0, 0, datetime('now'))",
         params![title],
     )
-        .map_err(|e| e.to_string())?;
+    .map_err(|e| e.to_string())?;
     let id = conn.last_insert_rowid();
     conn.execute(
         "UPDATE tasks SET position = CAST(?1 AS REAL) WHERE id = ?1",
@@ -263,7 +254,10 @@ pub fn set_done(conn: &Connection, id: i64, done: bool) -> Result<Task, String> 
 
 pub fn update_task_title(conn: &Connection, id: i64, title: &str) -> Result<Task, String> {
     let n = conn
-        .execute("UPDATE tasks SET title = ?1 WHERE id = ?2", params![title, id])
+        .execute(
+            "UPDATE tasks SET title = ?1 WHERE id = ?2",
+            params![title, id],
+        )
         .map_err(|e| e.to_string())?;
     if n == 0 {
         return Err("task not found".to_string());
@@ -281,15 +275,18 @@ pub fn delete_task(conn: &Connection, id: i64) -> Result<(), String> {
     Ok(())
 }
 
-/// Removes completed tasks with `completed_at` strictly before `boundary`.
-/// `boundary` must be `"YYYY-MM-DD HH:MM:SS"` (UTC), matching SQLite `datetime('now')`.
-pub fn purge_completed_before(conn: &Connection, boundary: &str) -> Result<usize, String> {
+/// Removes completed tasks whose calendar `created_at` is on or before `cutoff_date`.
+/// `cutoff_date` must be `"YYYY-MM-DD"` (local retention cutoff).
+pub fn purge_completed_by_created_date(
+    conn: &Connection,
+    cutoff_date: &str,
+) -> Result<usize, String> {
     conn.execute(
         "DELETE FROM tasks
          WHERE done = 1
-           AND completed_at IS NOT NULL
-           AND completed_at < ?1",
-        params![boundary],
+           AND created_at IS NOT NULL
+           AND date(created_at) <= date(?1)",
+        params![cutoff_date],
     )
     .map_err(|e| e.to_string())?;
     Ok(conn.changes() as usize)
@@ -361,18 +358,22 @@ mod tests {
         let conn = test_conn();
         let a = create_task(&conn, "a").unwrap();
         let b = create_task(&conn, "b").unwrap();
-        move_active_to_index(&conn, a.id, 0)
-            .unwrap()
-            .task;
+        move_active_to_index(&conn, a.id, 0).unwrap().task;
         let list = list_tasks(&conn).unwrap();
         assert_eq!(list[0].id, a.id);
         assert_eq!(list[1].id, b.id);
     }
 
-    fn insert_task(conn: &Connection, title: &str, done: bool, completed_at: Option<&str>) {
+    fn insert_task(
+        conn: &Connection,
+        title: &str,
+        done: bool,
+        created_at: Option<&str>,
+        completed_at: Option<&str>,
+    ) {
         conn.execute(
-            "INSERT INTO tasks (title, done, completed_at, position) VALUES (?1, ?2, ?3, 0)",
-            params![title, if done { 1 } else { 0 }, completed_at],
+            "INSERT INTO tasks (title, done, position, created_at, completed_at) VALUES (?1, ?2, 0, ?3, ?4)",
+            params![title, if done { 1 } else { 0 }, created_at, completed_at],
         )
         .unwrap();
         let id = conn.last_insert_rowid();
@@ -384,37 +385,46 @@ mod tests {
     }
 
     #[test]
-    fn purge_removes_old_completed() {
+    fn purge_removes_completed_on_or_before_cutoff() {
         let conn = test_conn();
-        insert_task(&conn, "old", true, Some("2026-05-29 10:00:00"));
-        let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
+        insert_task(&conn, "old", true, Some("2026-06-08 10:00:00"), None);
+        let deleted = purge_completed_by_created_date(&conn, "2026-06-09").unwrap();
         assert_eq!(deleted, 1);
         assert_eq!(list_tasks(&conn).unwrap().len(), 0);
     }
 
     #[test]
-    fn purge_keeps_today_completed() {
+    fn purge_keeps_completed_after_cutoff() {
         let conn = test_conn();
-        insert_task(&conn, "today", true, Some("2026-05-30 08:00:00"));
-        let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
+        insert_task(&conn, "recent", true, Some("2026-06-10 08:00:00"), None);
+        let deleted = purge_completed_by_created_date(&conn, "2026-06-09").unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(list_tasks(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn purge_keeps_completed_on_cutoff_date() {
+        let conn = test_conn();
+        insert_task(&conn, "border", true, Some("2026-06-09 23:59:00"), None);
+        let deleted = purge_completed_by_created_date(&conn, "2026-06-09").unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(list_tasks(&conn).unwrap().len(), 0);
     }
 
     #[test]
     fn purge_keeps_active() {
         let conn = test_conn();
-        insert_task(&conn, "active", false, None);
-        let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
+        insert_task(&conn, "active", false, Some("2026-06-01 00:00:00"), None);
+        let deleted = purge_completed_by_created_date(&conn, "2026-06-09").unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(list_tasks(&conn).unwrap().len(), 1);
     }
 
     #[test]
-    fn purge_skips_null_completed_at() {
+    fn purge_skips_null_created_at() {
         let conn = test_conn();
-        insert_task(&conn, "no date", true, None);
-        let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
+        insert_task(&conn, "no date", true, None, None);
+        let deleted = purge_completed_by_created_date(&conn, "2026-06-09").unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(list_tasks(&conn).unwrap().len(), 1);
     }
@@ -462,10 +472,7 @@ mod tests {
     #[test]
     fn delete_task_not_found() {
         let conn = test_conn();
-        assert_eq!(
-            delete_task(&conn, 999),
-            Err("task not found".to_string())
-        );
+        assert_eq!(delete_task(&conn, 999), Err("task not found".to_string()));
     }
 
     #[test]
@@ -518,8 +525,20 @@ mod tests {
     #[test]
     fn list_done_sorted_by_completed_at_desc() {
         let conn = test_conn();
-        insert_task(&conn, "old", true, Some("2026-05-28 10:00:00"));
-        insert_task(&conn, "new", true, Some("2026-05-30 10:00:00"));
+        insert_task(
+            &conn,
+            "old",
+            true,
+            Some("2026-05-28 10:00:00"),
+            Some("2026-05-28 10:00:00"),
+        );
+        insert_task(
+            &conn,
+            "new",
+            true,
+            Some("2026-05-30 10:00:00"),
+            Some("2026-05-30 10:00:00"),
+        );
         let list = list_tasks(&conn).unwrap();
         let done: Vec<_> = list.iter().filter(|t| t.done).collect();
         assert_eq!(done.len(), 2);

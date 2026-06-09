@@ -40,6 +40,28 @@ body {
   letter-spacing: 0.02em;
 }
 
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.settings-btn {
+  margin: 0;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 14px;
+  color: #8b93a7;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.settings-btn:hover {
+  color: #b8bfd0;
+}
+
 .hint {
   margin: 0;
   padding: 2px 4px;
@@ -299,4 +321,114 @@ input[type="checkbox"] {
   flex-shrink: 0;
   margin-top: 2px;
   accent-color: #3d5afe;
+}
+
+html.settings-window,
+body.settings-window {
+  height: 100%;
+  overflow: hidden;
+}
+
+body.settings-window #root {
+  height: 100%;
+  width: max-content;
+}
+
+.settings-app {
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  padding: 16px 20px 20px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #14161c;
+  color: #e8eaef;
+}
+
+.settings-title {
+  margin: 0 0 16px;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.settings-loading {
+  margin: 0;
+  color: #8b93a7;
+}
+
+.settings-section {
+  margin-bottom: 20px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.settings-section-title {
+  margin: 0 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #8b93a7;
+}
+
+.settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+  width: max-content;
+  min-width: 100%;
+}
+
+.settings-field-label {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.settings-field-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.settings-number {
+  width: 4.5ch;
+  padding: 6px 6px;
+  border: 1px solid #2f3542;
+  border-radius: 6px;
+  background: #0f1117;
+  color: inherit;
+  text-align: right;
+  appearance: textfield;
+  -moz-appearance: textfield;
+}
+
+.settings-number::-webkit-inner-spin-button,
+.settings-number::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.settings-hotkey-value {
+  font-size: 12px;
+  color: #b8bfd0;
+}
+
+.settings-action-btn {
+  padding: 6px 10px;
+  border: none;
+  border-radius: 6px;
+  background: #2a2f3a;
+  color: #e8eaef;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.settings-action-btn:hover {
+  background: #353b4a;
 }

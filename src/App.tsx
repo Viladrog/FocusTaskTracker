@@ -20,7 +20,9 @@ import { listen } from "@tauri-apps/api/event";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDeleteConfirmPosition } from "./lib/deleteConfirmPosition";
 import { orderTasks, type Task } from "./lib/orderTasks";
+import { type AppSettings } from "./lib/appSettings";
 import { formatTaskDateTime } from "./lib/formatTaskDateTime";
+import { formatHotkeyLabel } from "./lib/formatHotkeyLabel";
 import "./App.css";
 
 type DeleteConfirmState = {
@@ -119,7 +121,11 @@ function TaskEditZone({
   onEditKeyDown,
   onEditClick,
   inputRef,
-}: TaskRowEditProps & { inputRef: React.RefObject<HTMLInputElement | null> }) {
+  showCreatedAt,
+}: TaskRowEditProps & {
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  showCreatedAt: boolean;
+}) {
   useEffect(() => {
     if (isEditing && inputRef.current) {
       inputRef.current.focus();
@@ -144,9 +150,11 @@ function TaskEditZone({
         ) : (
           <>
             <span className="task-title">{task.title}</span>
-            <span className="task-created-at">
-              {formatTaskDateTime(task.created_at)}
-            </span>
+            {showCreatedAt ? (
+              <span className="task-created-at">
+                {formatTaskDateTime(task.created_at)}
+              </span>
+            ) : null}
           </>
         )}
       </div>
@@ -176,10 +184,12 @@ function SortableActiveRow({
   onEditKeyDown,
   onEditClick,
   inputRef,
+  showCreatedAt,
 }: TaskRowEditProps & {
   onToggle: (id: number) => void;
   onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
+  showCreatedAt: boolean;
 }) {
   const {
     attributes,
@@ -224,6 +234,7 @@ function SortableActiveRow({
         onEditKeyDown={onEditKeyDown}
         onEditClick={onEditClick}
         inputRef={inputRef}
+        showCreatedAt={showCreatedAt}
       />
       <button
         type="button"
@@ -251,10 +262,12 @@ function DoneRow({
   onEditKeyDown,
   onEditClick,
   inputRef,
+  showCreatedAt,
 }: TaskRowEditProps & {
   onToggle: (id: number) => void;
   onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
+  showCreatedAt: boolean;
 }) {
   return (
     <li className={isEditing ? "task done task-editing" : "task done"}>
@@ -271,6 +284,7 @@ function DoneRow({
         onEditKeyDown={onEditKeyDown}
         onEditClick={onEditClick}
         inputRef={inputRef}
+        showCreatedAt={showCreatedAt}
       />
       <button
         type="button"
@@ -284,6 +298,15 @@ function DoneRow({
   );
 }
 
+function applyUiSettings(settings: AppSettings) {
+  return {
+    hotkeyLabel: formatHotkeyLabel(settings.hotkey),
+    showCreatedAt: settings.show_created_at,
+    showCompletedTasks: settings.show_completed_tasks,
+    confirmTaskDelete: settings.confirm_task_delete,
+  };
+}
+
 function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [draft, setDraft] = useState("");
@@ -293,6 +316,10 @@ function App() {
   );
   const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
   const [editDraft, setEditDraft] = useState("");
+  const [hotkeyLabel, setHotkeyLabel] = useState("Ctrl+Shift+Space");
+  const [showCreatedAt, setShowCreatedAt] = useState(true);
+  const [showCompletedTasks, setShowCompletedTasks] = useState(true);
+  const [confirmTaskDelete, setConfirmTaskDelete] = useState(true);
   const deleteConfirmRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
 
@@ -322,6 +349,42 @@ function App() {
 
   useEffect(() => {
     void loadTasks().catch((e) => setLoadError(String(e)));
+  }, []);
+
+  useEffect(() => {
+    void invoke<AppSettings>("settings_load")
+      .then((settings) => {
+        const ui = applyUiSettings(settings);
+        setHotkeyLabel(ui.hotkeyLabel);
+        setShowCreatedAt(ui.showCreatedAt);
+        setShowCompletedTasks(ui.showCompletedTasks);
+        setConfirmTaskDelete(ui.confirmTaskDelete);
+      })
+      .catch((e) => setLoadError(String(e)));
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+
+    void listen<AppSettings>("settings-changed", (event) => {
+      const ui = applyUiSettings(event.payload);
+      setHotkeyLabel(ui.hotkeyLabel);
+      setShowCreatedAt(ui.showCreatedAt);
+      setShowCompletedTasks(ui.showCompletedTasks);
+      setConfirmTaskDelete(ui.confirmTaskDelete);
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlisten = fn;
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -503,6 +566,10 @@ function App() {
   }, [deleteConfirm]);
 
   const requestDelete = (id: number, button: HTMLButtonElement) => {
+    if (!confirmTaskDelete) {
+      void removeTask(id);
+      return;
+    }
     if (deleteConfirm?.taskId === id) {
       setDeleteConfirm(null);
       return;
@@ -562,15 +629,27 @@ function App() {
     <div className="app">
       <header className="titlebar" data-tauri-drag-region>
         <span className="title">Задачи</span>
-        <button
-          type="button"
-          className="hint"
-          data-tauri-drag-region={false}
-          title="Скрыть или показать панель"
-          onClick={() => void invoke("panel_toggle")}
-        >
-          Ctrl+Shift+Space
-        </button>
+        <div className="titlebar-actions" data-tauri-drag-region={false}>
+          <button
+            type="button"
+            className="settings-btn"
+            title="Настройки"
+            aria-label="Настройки"
+            onClick={() =>
+              void invoke("settings_open").catch((e) => setLoadError(String(e)))
+            }
+          >
+            ⚙
+          </button>
+          <button
+            type="button"
+            className="hint"
+            title="Скрыть или показать панель"
+            onClick={() => void invoke("panel_toggle")}
+          >
+            {hotkeyLabel}
+          </button>
+        </div>
       </header>
 
       {loadError ? <p className="error">{loadError}</p> : null}
@@ -613,26 +692,30 @@ function App() {
                   onEditKeyDown={handleEditKeyDown}
                   onEditClick={toggleEdit}
                   inputRef={editInputRef}
+                  showCreatedAt={showCreatedAt}
                 />
               ))}
             </ul>
           </SortableContext>
-          <ul className="task-section">
-            {doneTasks.map((t) => (
-              <DoneRow
-                key={t.id}
-                task={t}
-                isEditing={editingTaskId === t.id}
-                editDraft={editDraft}
-                onToggle={toggleTask}
-                onDeleteRequest={requestDelete}
-                onEditDraftChange={setEditDraft}
-                onEditKeyDown={handleEditKeyDown}
-                onEditClick={toggleEdit}
-                inputRef={editInputRef}
-              />
-            ))}
-          </ul>
+          {showCompletedTasks ? (
+            <ul className="task-section">
+              {doneTasks.map((t) => (
+                <DoneRow
+                  key={t.id}
+                  task={t}
+                  isEditing={editingTaskId === t.id}
+                  editDraft={editDraft}
+                  onToggle={toggleTask}
+                  onDeleteRequest={requestDelete}
+                  onEditDraftChange={setEditDraft}
+                  onEditKeyDown={handleEditKeyDown}
+                  onEditClick={toggleEdit}
+                  inputRef={editInputRef}
+                  showCreatedAt={showCreatedAt}
+                />
+              ))}
+            </ul>
+          ) : null}
         </DndContext>
       </div>
 

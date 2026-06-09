@@ -1,12 +1,10 @@
-/// Local midnight today as UTC `YYYY-MM-DD HH:MM:SS` for purge comparisons.
-pub fn today_local_midnight_boundary_utc() -> String {
-    use chrono::{Local, TimeZone};
+use chrono::{Duration, Local};
+
+/// Local calendar date `today - retention_days` as `YYYY-MM-DD` for purge comparisons.
+pub fn retention_cutoff_date(retention_days: u32) -> String {
     let today = Local::now().date_naive();
-    let local_midnight = today.and_hms_opt(0, 0, 0).unwrap();
-    let dt = Local.from_local_datetime(&local_midnight).unwrap();
-    dt.with_timezone(&chrono::Utc)
-        .format("%Y-%m-%d %H:%M:%S")
-        .to_string()
+    let cutoff = today - Duration::days(i64::from(retention_days));
+    cutoff.format("%Y-%m-%d").to_string()
 }
 
 #[cfg(test)]
@@ -14,14 +12,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn today_local_midnight_boundary_utc_format() {
-        let s = today_local_midnight_boundary_utc();
-        assert_eq!(s.len(), 19);
-        assert!(s.as_bytes()[4] == b'-');
-        assert!(s.as_bytes()[7] == b'-');
-        assert!(s.as_bytes()[10] == b' ');
-        assert!(s.as_bytes()[13] == b':');
-        assert!(s.as_bytes()[16] == b':');
-        assert!(s.chars().all(|c| c.is_ascii_digit() || c == '-' || c == ' ' || c == ':'));
+    fn retention_cutoff_date_format() {
+        let s = retention_cutoff_date(0);
+        assert_eq!(s.len(), 10);
+        assert_eq!(s.as_bytes()[4], b'-');
+        assert_eq!(s.as_bytes()[7], b'-');
+    }
+
+    #[test]
+    fn retention_cutoff_date_decreases_with_n() {
+        let n0 = retention_cutoff_date(0);
+        let n1 = retention_cutoff_date(1);
+        assert!(n1 < n0);
     }
 }

@@ -10,17 +10,16 @@ use std::thread;
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use tauri::{
     image::Image,
     menu::{Menu, MenuEvent, MenuId, MenuItem},
     tray::TrayIconBuilder,
-    Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewWindow, WindowEvent,
+    Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder, WindowEvent,
 };
-use rusqlite::Connection;
-use tauri_plugin_global_shortcut::{
-    Builder as ShortcutBuilder, GlobalShortcutExt, ShortcutState,
-};
+use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, GlobalShortcutExt, ShortcutState};
 
 /// Set when the user chose "Exit" — process ends after the webview window is destroyed.
 static APP_EXITING: AtomicBool = AtomicBool::new(false);
@@ -37,9 +36,9 @@ static PANEL_DEBUG_LAST_LOG_MS: AtomicU64 = AtomicU64::new(0);
 /// Counts resize events for correlation.
 static PANEL_DEBUG_RESIZE_SEQ: AtomicU64 = AtomicU64::new(0);
 
-use settings::{AppSettings, DEFAULT_PANEL_WIDTH};
+use settings::{AppSettings, DEFAULT_PANEL_WIDTH, SettingsPatch};
 
-const PURGE_INTERVAL: Duration = Duration::from_secs(6 * 60 * 60);
+use tauri_plugin_global_shortcut::Shortcut;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
@@ -97,11 +96,9 @@ fn panel_log_throttled(app: &tauri::AppHandle, line: &str) {
     panel_log_line(app, line);
 }
 
-fn settings_load(app: &tauri::AppHandle) -> AppSettings {
+fn load_app_settings(app: &tauri::AppHandle) -> AppSettings {
     let Ok(dir) = app_data_dir(app) else {
-        return AppSettings {
-            panel_width: DEFAULT_PANEL_WIDTH,
-        };
+        return AppSettings::default();
     };
     settings::settings_load_from_dir(&dir)
 }
@@ -111,27 +108,107 @@ fn settings_save(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), S
     settings::settings_save_to_dir(&dir, settings)
 }
 
-fn purge_completed_tasks(db: &Mutex<Connection>) -> Result<usize, String> {
-    let boundary = purge_boundary::today_local_midnight_boundary_utc();
+fn run_purge(app: &tauri::AppHandle, db: &Mutex<Connection>) -> Result<usize, String> {
+    let settings = load_app_settings(app);
+    let cutoff = purge_boundary::retention_cutoff_date(settings.completed_retention_days);
     let conn = db.lock().map_err(|e| e.to_string())?;
-    db::purge_completed_before(&conn, &boundary)
+    db::purge_completed_by_created_date(&conn, &cutoff)
 }
 
 fn spawn_purge_scheduler(app: tauri::AppHandle) {
-    thread::spawn(move || {
-        loop {
-            thread::sleep(PURGE_INTERVAL);
-            if APP_EXITING.load(Ordering::SeqCst) {
-                break;
-            }
-            let db = app.state::<Mutex<Connection>>();
-            if let Ok(n) = purge_completed_tasks(&db) {
-                if n > 0 {
-                    let _ = app.emit("tasks-purged", ());
-                }
+    thread::spawn(move || loop {
+        if APP_EXITING.load(Ordering::SeqCst) {
+            break;
+        }
+        let hours = load_app_settings(&app)
+            .purge_interval_hours
+            .max(settings::MIN_PURGE_INTERVAL_HOURS);
+        thread::sleep(Duration::from_secs(u64::from(hours) * 3600));
+        if APP_EXITING.load(Ordering::SeqCst) {
+            break;
+        }
+        let db = app.state::<Mutex<Connection>>();
+        if let Ok(n) = run_purge(&app, &db) {
+            if n > 0 {
+                let _ = app.emit("tasks-purged", ());
             }
         }
     });
+}
+
+fn register_toggle_shortcut(app: &tauri::AppHandle, hotkey: &str) -> Result<(), String> {
+    app.global_shortcut()
+        .unregister_all()
+        .map_err(|e| e.to_string())?;
+    let shortcut: Shortcut = hotkey
+        .parse()
+        .map_err(|_| format!("invalid hotkey: {hotkey}"))?;
+    app.global_shortcut()
+        .on_shortcut(shortcut, |app, _shortcut, event| {
+            if event.state == ShortcutState::Pressed {
+                toggle_window(app);
+            }
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn sync_autostart(app: &tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    if enabled {
+        app.autolaunch().enable().map_err(|e| e.to_string())?;
+    } else {
+        app.autolaunch().disable().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(not(desktop))]
+fn sync_autostart(_app: &tauri::AppHandle, _enabled: bool) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(desktop)]
+fn sync_autostart_from_settings(
+    app: &tauri::AppHandle,
+    settings: &AppSettings,
+) -> Result<(), String> {
+    use tauri_plugin_autostart::ManagerExt;
+    let current = app.autolaunch().is_enabled().map_err(|e| e.to_string())?;
+    if current != settings.autostart {
+        sync_autostart(app, settings.autostart)?;
+    }
+    Ok(())
+}
+
+#[cfg(not(desktop))]
+fn sync_autostart_from_settings(
+    _app: &tauri::AppHandle,
+    _settings: &AppSettings,
+) -> Result<(), String> {
+    Ok(())
+}
+
+fn apply_settings_side_effects(
+    app: &tauri::AppHandle,
+    settings: &AppSettings,
+    db: &Mutex<Connection>,
+    patch: &SettingsPatch,
+) -> Result<(), String> {
+    if patch.hotkey.is_some() {
+        register_toggle_shortcut(app, &settings.hotkey)?;
+    }
+    if patch.autostart.is_some() {
+        sync_autostart(app, settings.autostart)?;
+    }
+    if patch.completed_retention_days.is_some() {
+        let n = run_purge(app, db)?;
+        if n > 0 {
+            let _ = app.emit("tasks-purged", ());
+        }
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -141,10 +218,7 @@ fn tasks_load(db: tauri::State<'_, Mutex<Connection>>) -> Result<Vec<Task>, Stri
 }
 
 #[tauri::command]
-fn task_create(
-    db: tauri::State<'_, Mutex<Connection>>,
-    title: String,
-) -> Result<Task, String> {
+fn task_create(db: tauri::State<'_, Mutex<Connection>>, title: String) -> Result<Task, String> {
     let title = title_validation::normalize_task_title(&title)?;
     let conn = db.lock().map_err(|e| e.to_string())?;
     db::create_task(&conn, title)
@@ -212,8 +286,7 @@ fn anchor_panel_right(win: &WebviewWindow) -> Result<(), String> {
         return Ok(());
     }
 
-    win
-        .set_position(PhysicalPosition::new(x, y))
+    win.set_position(PhysicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -221,16 +294,14 @@ fn anchor_panel_right(win: &WebviewWindow) -> Result<(), String> {
 fn place_panel_window(win: &WebviewWindow, app: &tauri::AppHandle) -> Result<(), String> {
     let monitor = pick_monitor(win)?;
     let wa = monitor.work_area();
-    let width = settings_load(app).panel_width;
+    let width = load_app_settings(app).panel_width;
     let x = panel_layout::panel_place_x(wa.position.x, wa.size.width, width);
     let y = wa.position.y;
     let height = wa.size.height.max(200);
 
-    win
-        .set_position(PhysicalPosition::new(x, y))
+    win.set_position(PhysicalPosition::new(x, y))
         .map_err(|e| e.to_string())?;
-    win
-        .set_size(PhysicalSize::new(width, height))
+    win.set_size(PhysicalSize::new(width, height))
         .map_err(|e| e.to_string())?;
     win.set_always_on_top(true).map_err(|e| e.to_string())?;
     win.set_skip_taskbar(true).map_err(|e| e.to_string())?;
@@ -262,7 +333,8 @@ fn defer_save_panel_width(app: tauri::AppHandle, width: u32) {
                 &app_for_thread,
                 &format!("save_width stable gen={gen_after} width={latest}"),
             );
-            let settings = AppSettings { panel_width: latest };
+            let mut settings = load_app_settings(&app_for_thread);
+            settings.panel_width = latest;
             let _ = settings_save(&app_for_thread, &settings);
             break;
         }
@@ -270,7 +342,10 @@ fn defer_save_panel_width(app: tauri::AppHandle, width: u32) {
     });
 
     // Make it visible in logs that we scheduled a save.
-    panel_log_throttled(&app, &format!("save_width scheduled gen={generation} width={width}"));
+    panel_log_throttled(
+        &app,
+        &format!("save_width scheduled gen={generation} width={width}"),
+    );
 }
 
 fn on_panel_resized(win: &WebviewWindow, app: &tauri::AppHandle) {
@@ -297,7 +372,8 @@ fn on_panel_resized(win: &WebviewWindow, app: &tauri::AppHandle) {
                 "resize seq={seq} size=({}x{}) pos={} width={}",
                 size.width,
                 size.height,
-                pos.map(|p| format!("({}, {})", p.x, p.y)).unwrap_or_else(|| "ERR".to_string()),
+                pos.map(|p| format!("({}, {})", p.x, p.y))
+                    .unwrap_or_else(|| "ERR".to_string()),
                 width
             ),
         );
@@ -338,6 +414,65 @@ fn toggle_window(app: &tauri::AppHandle) {
 #[tauri::command]
 fn panel_toggle(app: tauri::AppHandle) {
     toggle_window(&app);
+}
+
+#[tauri::command]
+fn settings_load(app: tauri::AppHandle) -> Result<AppSettings, String> {
+    Ok(load_app_settings(&app))
+}
+
+#[tauri::command]
+fn settings_set(
+    app: tauri::AppHandle,
+    patch: SettingsPatch,
+    db: tauri::State<'_, Mutex<Connection>>,
+) -> Result<AppSettings, String> {
+    let current = load_app_settings(&app);
+    let updated = settings::apply_patch(current, patch.clone())?;
+    settings_save(&app, &updated)?;
+    apply_settings_side_effects(&app, &updated, &db, &patch)?;
+    let _ = app.emit("settings-changed", &updated);
+    Ok(updated)
+}
+
+fn attach_settings_close_handler(win: &WebviewWindow) {
+    let win_for_close = win.clone();
+    let _ = win.on_window_event(move |ev| {
+        if let WindowEvent::CloseRequested { api, .. } = ev {
+            api.prevent_close();
+            let _ = win_for_close.hide();
+        }
+    });
+}
+
+fn create_settings_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+    let win = WebviewWindowBuilder::new(app, "settings", WebviewUrl::default())
+        .title("Настройки")
+        .inner_size(400.0, 520.0)
+        .resizable(false)
+        .decorations(true)
+        .center()
+        .visible(false)
+        .build()
+        .map_err(|e| e.to_string())?;
+    attach_settings_close_handler(&win);
+    Ok(win)
+}
+
+fn ensure_settings_window(app: &tauri::AppHandle) -> Result<WebviewWindow, String> {
+    if let Some(win) = app.get_webview_window("settings") {
+        return Ok(win);
+    }
+    create_settings_window(app)
+}
+
+#[tauri::command]
+fn settings_open(app: tauri::AppHandle) -> Result<(), String> {
+    let win = ensure_settings_window(&app)?;
+    win.center().map_err(|e| e.to_string())?;
+    win.show().map_err(|e| e.to_string())?;
+    win.set_focus().map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 fn show_window(app: &tauri::AppHandle) {
@@ -381,57 +516,56 @@ fn handle_tray_menu(app: &tauri::AppHandle, event: MenuEvent) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let shortcut_plugin = ShortcutBuilder::new()
-        .with_shortcut("ctrl+shift+space")
-        .expect("invalid shortcut string")
-        .with_handler(|app, _shortcut, event| {
-            if event.state == ShortcutState::Pressed {
-                toggle_window(app);
-            }
-        })
-        .build();
+    let shortcut_plugin = ShortcutBuilder::new().build();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .plugin(shortcut_plugin)
         .setup(|app| {
             let handle = app.handle().clone();
             let data_dir = app_data_dir(&handle)?;
             let conn = db::open(&data_dir)?;
-            let boundary = purge_boundary::today_local_midnight_boundary_utc();
-            let _ = db::purge_completed_before(&conn, &boundary);
             handle.manage(Mutex::new(conn));
+
+            let settings = load_app_settings(&handle);
+            register_toggle_shortcut(&handle, &settings.hotkey)?;
+            sync_autostart_from_settings(&handle, &settings)?;
+
+            let db = handle.state::<Mutex<Connection>>();
+            let _ = run_purge(&handle, &db);
             spawn_purge_scheduler(handle.clone());
 
-            let win = app
-                .get_webview_window("main")
-                .expect("main webview window");
+            let win = app.get_webview_window("main").expect("main webview window");
             place_panel_window(&win, &handle).expect("place panel");
+
+            if let Some(settings_win) = app.get_webview_window("settings") {
+                attach_settings_close_handler(&settings_win);
+            }
 
             let app_for_destroy = handle.clone();
             let win_for_close = win.clone();
             let app_for_resize = handle.clone();
-            let _ = win.on_window_event(move |ev| {
-                match ev {
-                    WindowEvent::CloseRequested { api, .. } => {
-                        api.prevent_close();
-                        let _ = win_for_close.hide();
-                    }
-                    WindowEvent::Resized(_) => {
-                        on_panel_resized(&win_for_close, &app_for_resize);
-                    }
-                    WindowEvent::Destroyed => {
-                        if APP_EXITING.load(Ordering::SeqCst) {
-                            app_for_destroy.exit(0);
-                        }
-                    }
-                    _ => {}
+            let _ = win.on_window_event(move |ev| match ev {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = win_for_close.hide();
                 }
+                WindowEvent::Resized(_) => {
+                    on_panel_resized(&win_for_close, &app_for_resize);
+                }
+                WindowEvent::Destroyed => {
+                    if APP_EXITING.load(Ordering::SeqCst) {
+                        app_for_destroy.exit(0);
+                    }
+                }
+                _ => {}
             });
 
-            let icon = Image::from_bytes(include_bytes!("../icons/32x32.png"))
-                .expect("tray icon decode");
+            let icon =
+                Image::from_bytes(include_bytes!("../icons/32x32.png")).expect("tray icon decode");
 
-            let tray_show = MenuItem::with_id(&handle, "tray_show", "Показать", true, None::<&str>)?;
+            let tray_show =
+                MenuItem::with_id(&handle, "tray_show", "Показать", true, None::<&str>)?;
             let tray_hide = MenuItem::with_id(&handle, "tray_hide", "Скрыть", true, None::<&str>)?;
             let tray_quit = MenuItem::with_id(&handle, "tray_quit", "Выход", true, None::<&str>)?;
             let menu = Menu::with_items(&handle, &[&tray_show, &tray_hide, &tray_quit])?;
@@ -454,7 +588,10 @@ pub fn run() {
             task_delete,
             task_move_active,
             reposition_panel,
-            panel_toggle
+            panel_toggle,
+            settings_load,
+            settings_set,
+            settings_open
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

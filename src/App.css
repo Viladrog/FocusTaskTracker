@@ -128,15 +128,63 @@ body {
   background: #1a1e27;
 }
 
+.task-edit-zone {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .task-title {
   flex: 1;
   word-break: break-word;
   line-height: 1.35;
 }
 
-.task.done .task-title {
+.task-title-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  border: 1px solid #2f3542;
+  border-radius: 4px;
+  background: #0f1117;
+  color: inherit;
+  font: inherit;
+  line-height: 1.35;
+  outline: none;
+  user-select: text;
+}
+
+.task-title-input:focus {
+  border-color: #4c6fff;
+}
+
+.task.done .task-title,
+.task.done .task-title-input {
   text-decoration: line-through;
   color: #7a8299;
+}
+
+.edit {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #8b93a7;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.edit:hover {
+  background: #2a2f3a;
+  color: #b8bfd0;
+}
+
+.task-editing .edit {
+  color: #4c6fff;
 }
 
 .delete {

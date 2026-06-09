@@ -101,14 +101,77 @@ type TaskMoveResult = {
   rebalanced: boolean;
 };
 
+type TaskRowEditProps = {
+  task: Task;
+  isEditing: boolean;
+  editDraft: string;
+  onEditDraftChange: (value: string) => void;
+  onEditKeyDown: (e: React.KeyboardEvent, taskId: number) => void;
+  onEditClick: (task: Task) => void;
+};
+
+function TaskEditZone({
+  task,
+  isEditing,
+  editDraft,
+  onEditDraftChange,
+  onEditKeyDown,
+  onEditClick,
+  inputRef,
+}: TaskRowEditProps & { inputRef: React.RefObject<HTMLInputElement | null> }) {
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [isEditing, inputRef]);
+
+  return (
+    <div className="task-edit-zone">
+      {isEditing ? (
+        <input
+          ref={inputRef}
+          type="text"
+          className="task-title-input"
+          value={editDraft}
+          onChange={(e) => onEditDraftChange(e.target.value)}
+          onKeyDown={(e) => onEditKeyDown(e, task.id)}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+        />
+      ) : (
+        <span className="task-title">{task.title}</span>
+      )}
+      <button
+        type="button"
+        className="edit"
+        onPointerDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onEditClick(task);
+        }}
+        aria-label="Редактировать"
+      >
+        ✎
+      </button>
+    </div>
+  );
+}
+
 function SortableActiveRow({
   task,
+  isEditing,
+  editDraft,
   onToggle,
   onDeleteRequest,
-}: {
-  task: Task;
+  onEditDraftChange,
+  onEditKeyDown,
+  onEditClick,
+  inputRef,
+}: TaskRowEditProps & {
   onToggle: (id: number) => void;
   onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   const {
     attributes,
@@ -124,13 +187,19 @@ function SortableActiveRow({
     transition,
   };
 
+  const className = isDragging
+    ? "task task-dragging"
+    : isEditing
+      ? "task task-editing"
+      : "task";
+
   return (
     <li
       ref={setNodeRef}
       style={style}
-      className={isDragging ? "task task-dragging" : "task"}
+      className={className}
       {...attributes}
-      {...listeners}
+      {...(isEditing ? {} : listeners)}
     >
       <input
         type="checkbox"
@@ -139,7 +208,15 @@ function SortableActiveRow({
         onClick={(e) => e.stopPropagation()}
         onChange={() => onToggle(task.id)}
       />
-      <span className="task-title">{task.title}</span>
+      <TaskEditZone
+        task={task}
+        isEditing={isEditing}
+        editDraft={editDraft}
+        onEditDraftChange={onEditDraftChange}
+        onEditKeyDown={onEditKeyDown}
+        onEditClick={onEditClick}
+        inputRef={inputRef}
+      />
       <button
         type="button"
         className="delete"
@@ -158,21 +235,35 @@ function SortableActiveRow({
 
 function DoneRow({
   task,
+  isEditing,
+  editDraft,
   onToggle,
   onDeleteRequest,
-}: {
-  task: Task;
+  onEditDraftChange,
+  onEditKeyDown,
+  onEditClick,
+  inputRef,
+}: TaskRowEditProps & {
   onToggle: (id: number) => void;
   onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
+  inputRef: React.RefObject<HTMLInputElement | null>;
 }) {
   return (
-    <li className="task done">
+    <li className={isEditing ? "task done task-editing" : "task done"}>
       <input
         type="checkbox"
         checked={task.done}
         onChange={() => onToggle(task.id)}
       />
-      <span className="task-title">{task.title}</span>
+      <TaskEditZone
+        task={task}
+        isEditing={isEditing}
+        editDraft={editDraft}
+        onEditDraftChange={onEditDraftChange}
+        onEditKeyDown={onEditKeyDown}
+        onEditClick={onEditClick}
+        inputRef={inputRef}
+      />
       <button
         type="button"
         className="delete"
@@ -192,7 +283,10 @@ function App() {
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(
     null,
   );
+  const [editingTaskId, setEditingTaskId] = useState<number | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const deleteConfirmRef = useRef<HTMLDivElement>(null);
+  const editInputRef = useRef<HTMLInputElement>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -288,6 +382,95 @@ function App() {
       setLoadError(String(e));
     }
   };
+
+  const cancelEdit = () => {
+    setEditingTaskId(null);
+    setEditDraft("");
+  };
+
+  const startEdit = (task: Task) => {
+    setDeleteConfirm(null);
+    setEditingTaskId(task.id);
+    setEditDraft(task.title);
+  };
+
+  const commitEdit = async (id: number) => {
+    const task = tasks.find((t) => t.id === id);
+    if (!task) {
+      cancelEdit();
+      return;
+    }
+    const title = editDraft.trim();
+    if (!title || title === task.title) {
+      cancelEdit();
+      return;
+    }
+    const prev = tasks;
+    const draftForRestore = editDraft;
+    setEditingTaskId(null);
+    setEditDraft("");
+    setTasks(
+      orderTasks(
+        tasks.map((item) => (item.id === id ? { ...item, title } : item)),
+      ),
+    );
+    try {
+      const updated = await invoke<Task>("task_update_title", { id, title });
+      setTasks((current) =>
+        orderTasks(current.map((item) => (item.id === id ? updated : item))),
+      );
+      setLoadError(null);
+    } catch (e) {
+      setTasks(prev);
+      setEditingTaskId(id);
+      setEditDraft(draftForRestore);
+      setLoadError(String(e));
+    }
+  };
+
+  const toggleEdit = (task: Task) => {
+    if (editingTaskId === task.id) {
+      void commitEdit(task.id);
+    } else {
+      startEdit(task);
+    }
+  };
+
+  const handleEditKeyDown = (e: React.KeyboardEvent, taskId: number) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void commitEdit(taskId);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEdit();
+    }
+  };
+
+  useEffect(() => {
+    if (editingTaskId === null) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") cancelEdit();
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
+      const target = e.target as Element;
+      if (target.closest?.(".task-edit-zone")) return;
+      if (deleteConfirmRef.current?.contains(target)) return;
+      if (target.closest?.(".delete")) {
+        cancelEdit();
+        return;
+      }
+      void commitEdit(editingTaskId);
+    };
+
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("pointerdown", onPointerDown);
+    };
+  }, [editingTaskId, editDraft, tasks]);
 
   useEffect(() => {
     if (!deleteConfirm) return;
@@ -414,8 +597,14 @@ function App() {
                 <SortableActiveRow
                   key={t.id}
                   task={t}
+                  isEditing={editingTaskId === t.id}
+                  editDraft={editDraft}
                   onToggle={toggleTask}
                   onDeleteRequest={requestDelete}
+                  onEditDraftChange={setEditDraft}
+                  onEditKeyDown={handleEditKeyDown}
+                  onEditClick={toggleEdit}
+                  inputRef={editInputRef}
                 />
               ))}
             </ul>
@@ -425,8 +614,14 @@ function App() {
               <DoneRow
                 key={t.id}
                 task={t}
+                isEditing={editingTaskId === t.id}
+                editDraft={editDraft}
                 onToggle={toggleTask}
                 onDeleteRequest={requestDelete}
+                onEditDraftChange={setEditDraft}
+                onEditKeyDown={handleEditKeyDown}
+                onEditClick={toggleEdit}
+                inputRef={editInputRef}
               />
             ))}
           </ul>

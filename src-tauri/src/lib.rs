@@ -150,6 +150,17 @@ fn task_create(
 }
 
 #[tauri::command]
+fn task_update_title(
+    db: tauri::State<'_, Mutex<Connection>>,
+    id: i64,
+    title: String,
+) -> Result<Task, String> {
+    let title = title_validation::normalize_task_title(&title)?;
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    db::update_task_title(&conn, id, title)
+}
+
+#[tauri::command]
 fn task_set_done(
     db: tauri::State<'_, Mutex<Connection>>,
     id: i64,
@@ -437,6 +448,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             tasks_load,
             task_create,
+            task_update_title,
             task_set_done,
             task_delete,
             task_move_active,

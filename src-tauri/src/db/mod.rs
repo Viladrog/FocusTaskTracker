@@ -246,6 +246,16 @@ pub fn set_done(conn: &Connection, id: i64, done: bool) -> Result<Task, String> 
     fetch_task(conn, id)
 }
 
+pub fn update_task_title(conn: &Connection, id: i64, title: &str) -> Result<Task, String> {
+    let n = conn
+        .execute("UPDATE tasks SET title = ?1 WHERE id = ?2", params![title, id])
+        .map_err(|e| e.to_string())?;
+    if n == 0 {
+        return Err("task not found".to_string());
+    }
+    fetch_task(conn, id)
+}
+
 pub fn delete_task(conn: &Connection, id: i64) -> Result<(), String> {
     let n = conn
         .execute("DELETE FROM tasks WHERE id = ?1", params![id])
@@ -392,6 +402,37 @@ mod tests {
         let deleted = purge_completed_before(&conn, "2026-05-30 00:00:00").unwrap();
         assert_eq!(deleted, 0);
         assert_eq!(list_tasks(&conn).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn update_task_title_changes_title() {
+        let conn = test_conn();
+        let task = create_task(&conn, "old").unwrap();
+        let updated = update_task_title(&conn, task.id, "new").unwrap();
+        assert_eq!(updated.title, "new");
+        assert_eq!(updated.done, task.done);
+        assert_eq!(updated.position, task.position);
+        assert_eq!(updated.completed_at, task.completed_at);
+    }
+
+    #[test]
+    fn update_task_title_not_found() {
+        let conn = test_conn();
+        assert_eq!(
+            update_task_title(&conn, 999, "x").unwrap_err(),
+            "task not found".to_string()
+        );
+    }
+
+    #[test]
+    fn update_task_title_on_done_task() {
+        let conn = test_conn();
+        let task = create_task(&conn, "done task").unwrap();
+        let done = set_done(&conn, task.id, true).unwrap();
+        let updated = update_task_title(&conn, done.id, "renamed").unwrap();
+        assert_eq!(updated.title, "renamed");
+        assert!(updated.done);
+        assert!(updated.completed_at.is_some());
     }
 
     #[test]

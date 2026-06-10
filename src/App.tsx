@@ -379,11 +379,9 @@ function DoneRow({
   );
 }
 
-const CORE_TABS: { id: TaskList; label: string }[] = [
-  { id: "urgent", label: "Задачи" },
-  { id: "daily", label: "Ежедневные" },
-  { id: "weekly", label: "Еженедельные" },
-];
+const URGENT_TAB = { id: "urgent" as const, label: "Задачи" };
+const DAILY_TAB = { id: "daily" as const, label: "Ежедневные" };
+const WEEKLY_TAB = { id: "weekly" as const, label: "Еженедельные" };
 const BACKLOG_TAB = { id: "backlog" as const, label: "Бэклог" };
 
 function applyUiSettings(settings: AppSettings) {
@@ -392,6 +390,8 @@ function applyUiSettings(settings: AppSettings) {
     showCreatedAt: settings.show_created_at,
     showCompletedTasks: settings.show_completed_tasks,
     confirmTaskDelete: settings.confirm_task_delete,
+    useDaily: settings.use_daily,
+    useWeekly: settings.use_weekly,
     useBacklog: settings.use_backlog,
   };
 }
@@ -410,6 +410,8 @@ function App() {
   const [showCreatedAt, setShowCreatedAt] = useState(true);
   const [showCompletedTasks, setShowCompletedTasks] = useState(true);
   const [confirmTaskDelete, setConfirmTaskDelete] = useState(true);
+  const [useDaily, setUseDaily] = useState(true);
+  const [useWeekly, setUseWeekly] = useState(true);
   const [useBacklog, setUseBacklog] = useState(true);
   const deleteConfirmRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
@@ -455,6 +457,8 @@ function App() {
         setShowCreatedAt(ui.showCreatedAt);
         setShowCompletedTasks(ui.showCompletedTasks);
         setConfirmTaskDelete(ui.confirmTaskDelete);
+        setUseDaily(ui.useDaily);
+        setUseWeekly(ui.useWeekly);
         setUseBacklog(ui.useBacklog);
       })
       .catch((e) => setLoadError(String(e)));
@@ -470,8 +474,15 @@ function App() {
       setShowCreatedAt(ui.showCreatedAt);
       setShowCompletedTasks(ui.showCompletedTasks);
       setConfirmTaskDelete(ui.confirmTaskDelete);
+      setUseDaily(ui.useDaily);
+      setUseWeekly(ui.useWeekly);
       setUseBacklog(ui.useBacklog);
-      if (!ui.useBacklog && activeListRef.current === "backlog") {
+      const current = activeListRef.current;
+      if (
+        (!ui.useBacklog && current === "backlog") ||
+        (!ui.useDaily && current === "daily") ||
+        (!ui.useWeekly && current === "weekly")
+      ) {
         setActiveList("urgent");
       }
     }).then((fn) => {
@@ -515,10 +526,13 @@ function App() {
   const showCreatedAtForList =
     showCreatedAt && (activeList === "urgent" || activeList === "backlog");
 
-  const visibleTabs = useMemo(
-    () => (useBacklog ? [...CORE_TABS, BACKLOG_TAB] : CORE_TABS),
-    [useBacklog],
-  );
+  const visibleTabs = useMemo(() => {
+    const tabs: { id: TaskList; label: string }[] = [URGENT_TAB];
+    if (useDaily) tabs.push(DAILY_TAB);
+    if (useWeekly) tabs.push(WEEKLY_TAB);
+    if (useBacklog) tabs.push(BACKLOG_TAB);
+    return tabs;
+  }, [useDaily, useWeekly, useBacklog]);
 
   const showBacklogActions =
     useBacklog && (activeList === "urgent" || activeList === "backlog");

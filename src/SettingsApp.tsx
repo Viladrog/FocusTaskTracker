@@ -144,6 +144,20 @@ function SettingsApp() {
 
       <section className="settings-section">
         <h2 className="settings-section-title">Задачи</h2>
+        <SettingsField label="Использовать ежедневные">
+          <input
+            type="checkbox"
+            checked={settings.use_daily}
+            onChange={(e) => applyBool({ use_daily: e.target.checked })}
+          />
+        </SettingsField>
+        <SettingsField label="Использовать еженедельные">
+          <input
+            type="checkbox"
+            checked={settings.use_weekly}
+            onChange={(e) => applyBool({ use_weekly: e.target.checked })}
+          />
+        </SettingsField>
         <SettingsField label="Использовать бэклог">
           <input
             type="checkbox"

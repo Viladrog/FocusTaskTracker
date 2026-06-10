@@ -7,6 +7,8 @@ export type AppSettings = {
   confirm_task_delete: boolean;
   task_update_interval_hours: number;
   show_completed_tasks: boolean;
+  use_daily: boolean;
+  use_weekly: boolean;
   use_backlog: boolean;
 };
 
@@ -18,6 +20,8 @@ export type SettingsPatch = {
   confirm_task_delete?: boolean;
   task_update_interval_hours?: number;
   show_completed_tasks?: boolean;
+  use_daily?: boolean;
+  use_weekly?: boolean;
   use_backlog?: boolean;
 };
 

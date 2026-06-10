@@ -32,6 +32,10 @@ pub struct AppSettings {
     #[serde(default = "default_true")]
     pub show_completed_tasks: bool,
     #[serde(default = "default_true")]
+    pub use_daily: bool,
+    #[serde(default = "default_true")]
+    pub use_weekly: bool,
+    #[serde(default = "default_true")]
     pub use_backlog: bool,
 }
 
@@ -45,6 +49,8 @@ pub struct SettingsPatch {
     #[serde(alias = "purge_interval_hours")]
     pub task_update_interval_hours: Option<u32>,
     pub show_completed_tasks: Option<bool>,
+    pub use_daily: Option<bool>,
+    pub use_weekly: Option<bool>,
     pub use_backlog: Option<bool>,
 }
 
@@ -79,6 +85,8 @@ impl Default for AppSettings {
             confirm_task_delete: true,
             task_update_interval_hours: 6,
             show_completed_tasks: true,
+            use_daily: true,
+            use_weekly: true,
             use_backlog: true,
         }
     }
@@ -124,6 +132,12 @@ pub fn apply_patch(mut settings: AppSettings, patch: SettingsPatch) -> Result<Ap
     }
     if let Some(show_completed_tasks) = patch.show_completed_tasks {
         settings.show_completed_tasks = show_completed_tasks;
+    }
+    if let Some(use_daily) = patch.use_daily {
+        settings.use_daily = use_daily;
+    }
+    if let Some(use_weekly) = patch.use_weekly {
+        settings.use_weekly = use_weekly;
     }
     if let Some(use_backlog) = patch.use_backlog {
         settings.use_backlog = use_backlog;
@@ -178,6 +192,8 @@ mod tests {
             confirm_task_delete: false,
             task_update_interval_hours: 12,
             show_completed_tasks: false,
+            use_daily: false,
+            use_weekly: false,
             use_backlog: false,
         };
         settings_save_to_dir(dir.path(), &written).unwrap();
@@ -262,6 +278,56 @@ mod tests {
         .unwrap();
         let loaded = settings_load_from_dir(dir.path());
         assert!(loaded.use_backlog);
+    }
+
+    #[test]
+    fn use_daily_defaults_true() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"panel_width": 400}"#,
+        )
+        .unwrap();
+        let loaded = settings_load_from_dir(dir.path());
+        assert!(loaded.use_daily);
+    }
+
+    #[test]
+    fn use_weekly_defaults_true() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"panel_width": 400}"#,
+        )
+        .unwrap();
+        let loaded = settings_load_from_dir(dir.path());
+        assert!(loaded.use_weekly);
+    }
+
+    #[test]
+    fn apply_patch_use_daily() {
+        let merged = apply_patch(
+            AppSettings::default(),
+            SettingsPatch {
+                use_daily: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!merged.use_daily);
+    }
+
+    #[test]
+    fn apply_patch_use_weekly() {
+        let merged = apply_patch(
+            AppSettings::default(),
+            SettingsPatch {
+                use_weekly: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!merged.use_weekly);
     }
 
     #[test]

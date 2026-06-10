@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Mutex;
 use std::thread;
 use std::time::Duration;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
@@ -16,6 +15,7 @@ use tauri::{
     image::Image,
     menu::{Menu, MenuEvent, MenuId, MenuItem},
     tray::TrayIconBuilder,
+    window::Color,
     Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder, WindowEvent,
 };
@@ -25,18 +25,12 @@ use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, GlobalShortcutExt
 static APP_EXITING: AtomicBool = AtomicBool::new(false);
 /// Set after `db` is registered via `.manage()` in setup.
 static BACKEND_READY: AtomicBool = AtomicBool::new(false);
-/// Prevents nested `Resized` handling when we call `set_position` / `set_size`.
-static PANEL_RESIZE_BUSY: AtomicBool = AtomicBool::new(false);
 /// Debounce generation for deferred `settings.json` writes during drag-resize.
 static PANEL_WIDTH_SAVE_GEN: AtomicU64 = AtomicU64::new(0);
-/// Latest observed (clamped) panel width from resize events.
+/// Latest observed panel width from resize events.
 static PANEL_WIDTH_LATEST: AtomicU32 = AtomicU32::new(DEFAULT_PANEL_WIDTH);
 /// Ensures we run at most one saver thread at a time.
 static PANEL_WIDTH_SAVER_RUNNING: AtomicBool = AtomicBool::new(false);
-/// Throttle high-frequency debug logs.
-static PANEL_DEBUG_LAST_LOG_MS: AtomicU64 = AtomicU64::new(0);
-/// Counts resize events for correlation.
-static PANEL_DEBUG_RESIZE_SEQ: AtomicU64 = AtomicU64::new(0);
 
 use settings::{AppSettings, DEFAULT_PANEL_WIDTH, SettingsPatch};
 
@@ -90,40 +84,6 @@ fn app_data_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     let dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     Ok(dir)
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-fn panel_log_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    Ok(app_data_dir(app)?.join("panel-debug.log"))
-}
-
-fn panel_log_line(app: &tauri::AppHandle, line: &str) {
-    let Ok(path) = panel_log_path(app) else {
-        return;
-    };
-    let stamp = now_ms();
-    let raw = format!("[{stamp}] {line}\n");
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .and_then(|mut f| std::io::Write::write_all(&mut f, raw.as_bytes()));
-}
-
-fn panel_log_throttled(app: &tauri::AppHandle, line: &str) {
-    let ms = now_ms();
-    let last = PANEL_DEBUG_LAST_LOG_MS.load(Ordering::Relaxed);
-    if ms.saturating_sub(last) < 120 {
-        return;
-    }
-    PANEL_DEBUG_LAST_LOG_MS.store(ms, Ordering::Relaxed);
-    panel_log_line(app, line);
 }
 
 fn load_app_settings(app: &tauri::AppHandle) -> AppSettings {
@@ -314,12 +274,10 @@ fn task_move_active(
     })
 }
 
-#[tauri::command]
-fn reposition_panel(app: tauri::AppHandle) -> Result<(), String> {
-    let win = app
-        .get_webview_window("main")
-        .ok_or_else(|| "window main not found".to_string())?;
-    anchor_panel_right(&win)
+const PANEL_APP_BG: Color = Color(20, 22, 28, 255);
+
+fn apply_panel_window_chrome(win: &WebviewWindow) {
+    let _ = win.set_background_color(Some(PANEL_APP_BG));
 }
 
 /// Keeps the panel glued to the right edge without changing its size.
@@ -328,10 +286,12 @@ fn anchor_panel_right(win: &WebviewWindow) -> Result<(), String> {
     let wa = monitor.work_area();
     let size = win.outer_size().map_err(|e| e.to_string())?;
     let pos = win.outer_position().map_err(|e| e.to_string())?;
+    let target_right = wa.position.x + wa.size.width as i32;
+    let current_right = pos.x + size.width as i32;
     let x = panel_layout::panel_anchor_x(wa.position.x, wa.size.width, size.width);
     let y = wa.position.y;
 
-    if pos.x == x && pos.y == y {
+    if current_right == target_right && pos.y == y {
         return Ok(());
     }
 
@@ -359,9 +319,8 @@ fn place_panel_window(win: &WebviewWindow, app: &tauri::AppHandle) -> Result<(),
 
 fn defer_save_panel_width(app: tauri::AppHandle, width: u32) {
     PANEL_WIDTH_LATEST.store(width, Ordering::Relaxed);
-    let generation = PANEL_WIDTH_SAVE_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    PANEL_WIDTH_SAVE_GEN.fetch_add(1, Ordering::SeqCst);
 
-    // Start a single saver thread that waits until the generation stabilizes.
     if PANEL_WIDTH_SAVER_RUNNING.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -376,12 +335,7 @@ fn defer_save_panel_width(app: tauri::AppHandle, width: u32) {
                 continue;
             }
 
-            // Stable: persist latest width.
             let latest = PANEL_WIDTH_LATEST.load(Ordering::Relaxed) as u32;
-            panel_log_line(
-                &app_for_thread,
-                &format!("save_width stable gen={gen_after} width={latest}"),
-            );
             let mut settings = load_app_settings(&app_for_thread);
             settings.panel_width = latest;
             let _ = settings_save(&app_for_thread, &settings);
@@ -389,58 +343,34 @@ fn defer_save_panel_width(app: tauri::AppHandle, width: u32) {
         }
         PANEL_WIDTH_SAVER_RUNNING.store(false, Ordering::SeqCst);
     });
-
-    // Make it visible in logs that we scheduled a save.
-    panel_log_throttled(
-        &app,
-        &format!("save_width scheduled gen={generation} width={width}"),
-    );
 }
 
 fn on_panel_resized(win: &WebviewWindow, app: &tauri::AppHandle) {
-    let seq = PANEL_DEBUG_RESIZE_SEQ.fetch_add(1, Ordering::Relaxed) + 1;
-
-    if PANEL_RESIZE_BUSY.swap(true, Ordering::SeqCst) {
-        panel_log_throttled(app, &format!("resize seq={seq} skip busy=true"));
+    let Ok(size) = win.outer_size() else {
         return;
-    }
-
-    let result = (|| {
-        let Ok(size) = win.outer_size() else {
-            panel_log_line(app, &format!("resize seq={seq} outer_size=ERR"));
-            return;
-        };
-        let pos = win.outer_position().ok();
-        // IMPORTANT: Do NOT call `set_size` while handling `Resized`.
-        // On some systems this can create a feedback loop (size drift) and hang the UI.
-        // We only persist the (clamped) width and keep the panel anchored to the right edge.
-        let width = size.width;
-        panel_log_throttled(
-            app,
-            &format!(
-                "resize seq={seq} size=({}x{}) pos={} width={}",
-                size.width,
-                size.height,
-                pos.map(|p| format!("({}, {})", p.x, p.y))
-                    .unwrap_or_else(|| "ERR".to_string()),
-                width
-            ),
-        );
-
-        defer_save_panel_width(app.clone(), width);
-        let _ = anchor_panel_right(win);
-    })();
-
-    PANEL_RESIZE_BUSY.store(false, Ordering::SeqCst);
-    let _ = result;
+    };
+    // Do NOT call `set_size` here — on Windows it can loop Resized events and hang the UI.
+    defer_save_panel_width(app.clone(), size.width);
+    apply_panel_window_chrome(win);
+    let _ = anchor_panel_right(win);
 }
 
-/// Prefer monitor under cursor (multi-monitor); fallback primary.
+/// Prefer monitor containing the window; fallback cursor, then primary.
 fn pick_monitor(win: &WebviewWindow) -> Result<tauri::Monitor, String> {
-    let pos = win.cursor_position().map_err(|e| e.to_string())?;
-    if let Ok(Some(m)) = win.monitor_from_point(pos.x, pos.y) {
+    let pos = win.outer_position().map_err(|e| e.to_string())?;
+    let size = win.outer_size().map_err(|e| e.to_string())?;
+    let center_x = pos.x + size.width as i32 / 2;
+    let center_y = pos.y + size.height as i32 / 2;
+    if let Ok(Some(m)) = win.monitor_from_point(center_x as f64, center_y as f64) {
         return Ok(m);
     }
+
+    if let Ok(cursor) = win.cursor_position() {
+        if let Ok(Some(m)) = win.monitor_from_point(cursor.x, cursor.y) {
+            return Ok(m);
+        }
+    }
+
     win.primary_monitor()
         .map_err(|e| e.to_string())?
         .ok_or_else(|| "no primary monitor".to_string())
@@ -588,6 +518,7 @@ pub fn run() {
 
             let win = app.get_webview_window("main").expect("main webview window");
             place_panel_window(&win, &handle).expect("place panel");
+            apply_panel_window_chrome(&win);
 
             if let Some(settings_win) = app.get_webview_window("settings") {
                 attach_settings_close_handler(&settings_win);
@@ -639,7 +570,6 @@ pub fn run() {
             task_set_done,
             task_delete,
             task_move_active,
-            reposition_panel,
             panel_toggle,
             settings_load,
             settings_set,

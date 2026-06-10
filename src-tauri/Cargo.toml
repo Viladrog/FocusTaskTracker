@@ -1,6 +1,6 @@
 [package]
 name = "focus-task-tracker"
-version = "1.1.1"
+version = "1.1.5"
 description = "Edge task tracker prototype"
 authors = ["you"]
 edition = "2021"

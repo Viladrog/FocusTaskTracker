@@ -21,4 +21,14 @@ mod tests {
     fn panel_place_x_matches_anchor_for_same_width() {
         assert_eq!(panel_place_x(0, 800, 400), panel_anchor_x(0, 800, 400));
     }
+
+    #[test]
+    fn panel_anchor_x_updates_when_panel_widens() {
+        let work_x = 0;
+        let work_w = 1920;
+        let narrow = panel_anchor_x(work_x, work_w, 360);
+        let wide = panel_anchor_x(work_x, work_w, 520);
+        assert_eq!(narrow - wide, 520 - 360);
+        assert_eq!(wide + 520, work_x + work_w as i32);
+    }
 }

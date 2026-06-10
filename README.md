@@ -120,7 +120,7 @@ npm run tauri build
 
 ### Разработка и проверка
 
-Окно привязывается к **рабочей области** монитора под курсором при старте; при изменении размера вызывается `reposition_panel`. Имеет смысл проверить второй монитор и масштаб дисплея **125% / 150%** в параметрах Windows.
+Окно привязывается к **рабочей области** монитора при старте и после изменения размера (Rust, без `set_size` в обработчике `Resized`). Имеет смысл проверить второй монитор и масштаб дисплея **125% / 150%** в параметрах Windows.
 
 **IDE:** [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
 

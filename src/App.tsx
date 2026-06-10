@@ -17,6 +17,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { invokeWhenBackendReady } from "./lib/invokeWhenBackendReady";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDeleteConfirmPosition } from "./lib/deleteConfirmPosition";
 import { orderTasks, type Task } from "./lib/orderTasks";
@@ -342,7 +343,7 @@ function App() {
   );
 
   const loadTasks = async () => {
-    const loaded = await invoke<Task[]>("tasks_load");
+    const loaded = await invokeWhenBackendReady<Task[]>("tasks_load");
     setTasks(orderTasks(loaded));
     setLoadError(null);
   };
@@ -352,7 +353,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void invoke<AppSettings>("settings_load")
+    void invokeWhenBackendReady<AppSettings>("settings_load")
       .then((settings) => {
         const ui = applyUiSettings(settings);
         setHotkeyLabel(ui.hotkeyLabel);

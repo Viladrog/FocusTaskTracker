@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
+import { invokeWhenBackendReady } from "./lib/invokeWhenBackendReady";
 import { type AppSettings, type SettingsPatch } from "./lib/appSettings";
 import { buildShortcutFromEvent } from "./lib/buildShortcutFromEvent";
 import { scheduleFitSettingsWindowWidth } from "./lib/fitSettingsWindow";
@@ -43,7 +44,7 @@ function SettingsApp() {
   }, []);
 
   useEffect(() => {
-    void invoke<AppSettings>("settings_load")
+    void invokeWhenBackendReady<AppSettings>("settings_load")
       .then((loaded) => {
         setSettings(loaded);
         setRetentionDraft(String(loaded.completed_retention_days));

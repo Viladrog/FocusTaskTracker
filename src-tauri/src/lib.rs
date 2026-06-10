@@ -23,6 +23,8 @@ use tauri_plugin_global_shortcut::{Builder as ShortcutBuilder, GlobalShortcutExt
 
 /// Set when the user chose "Exit" — process ends after the webview window is destroyed.
 static APP_EXITING: AtomicBool = AtomicBool::new(false);
+/// Set after `db` is registered via `.manage()` in setup.
+static BACKEND_READY: AtomicBool = AtomicBool::new(false);
 /// Prevents nested `Resized` handling when we call `set_position` / `set_size`.
 static PANEL_RESIZE_BUSY: AtomicBool = AtomicBool::new(false);
 /// Debounce generation for deferred `settings.json` writes during drag-resize.
@@ -209,6 +211,11 @@ fn apply_settings_side_effects(
         }
     }
     Ok(())
+}
+
+#[tauri::command]
+fn backend_ready() -> bool {
+    BACKEND_READY.load(Ordering::SeqCst)
 }
 
 #[tauri::command]
@@ -526,6 +533,8 @@ pub fn run() {
             let data_dir = app_data_dir(&handle)?;
             let conn = db::open(&data_dir)?;
             handle.manage(Mutex::new(conn));
+            BACKEND_READY.store(true, Ordering::SeqCst);
+            let _ = handle.emit("app-ready", ());
 
             let settings = load_app_settings(&handle);
             register_toggle_shortcut(&handle, &settings.hotkey)?;
@@ -581,6 +590,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            backend_ready,
             tasks_load,
             task_create,
             task_update_title,

@@ -144,6 +144,13 @@ function SettingsApp() {
 
       <section className="settings-section">
         <h2 className="settings-section-title">Задачи</h2>
+        <SettingsField label="Использовать бэклог">
+          <input
+            type="checkbox"
+            checked={settings.use_backlog}
+            onChange={(e) => applyBool({ use_backlog: e.target.checked })}
+          />
+        </SettingsField>
         <SettingsField label="Отображать дату создания">
           <input
             type="checkbox"

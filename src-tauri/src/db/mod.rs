@@ -302,6 +302,50 @@ pub fn delete_task(conn: &Connection, id: i64) -> Result<(), String> {
     Ok(())
 }
 
+/// Moves a task between `urgent` and `backlog` only.
+pub fn move_task_to_list(
+    conn: &Connection,
+    id: i64,
+    target: TaskList,
+) -> Result<Task, String> {
+    let task = fetch_task(conn, id)?;
+    let valid = matches!(
+        (task.list, target),
+        (TaskList::Urgent, TaskList::Backlog) | (TaskList::Backlog, TaskList::Urgent)
+    );
+    if !valid {
+        return Err("task can only move between urgent and backlog".to_string());
+    }
+
+    conn.execute(
+        "UPDATE tasks SET list = ?1 WHERE id = ?2",
+        params![target.as_str(), id],
+    )
+    .map_err(|e| e.to_string())?;
+
+    if !task.done {
+        let new_pos = if list_active_ids_by_position(conn, target)?.is_empty() {
+            id as f64
+        } else {
+            let min_pos: f64 = conn
+                .query_row(
+                    "SELECT MIN(position) FROM tasks WHERE done = 0 AND list = ?1",
+                    params![target.as_str()],
+                    |row| row.get(0),
+                )
+                .map_err(|e| e.to_string())?;
+            min_pos - 1.0
+        };
+        conn.execute(
+            "UPDATE tasks SET position = ?1 WHERE id = ?2",
+            params![new_pos, id],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    fetch_task(conn, id)
+}
+
 /// Removes completed tasks whose calendar `created_at` is on or before `cutoff_date`.
 /// `cutoff_date` must be `"YYYY-MM-DD"` (local retention cutoff).
 pub fn purge_completed_by_created_date(
@@ -310,7 +354,7 @@ pub fn purge_completed_by_created_date(
 ) -> Result<usize, String> {
     conn.execute(
         "DELETE FROM tasks
-         WHERE list = 'urgent'
+         WHERE list IN ('urgent', 'backlog')
            AND done = 1
            AND created_at IS NOT NULL
            AND date(created_at) <= date(?1)",
@@ -851,5 +895,58 @@ mod tests {
         let current = list.iter().find(|t| t.title == "this week").unwrap();
         assert!(!last.done);
         assert!(current.done);
+    }
+
+    #[test]
+    fn move_task_urgent_to_backlog() {
+        let conn = test_conn();
+        let task = create_task(&conn, "move me", URGENT).unwrap();
+        let moved = move_task_to_list(&conn, task.id, TaskList::Backlog).unwrap();
+        assert_eq!(moved.list, TaskList::Backlog);
+        assert_eq!(list_tasks(&conn, URGENT).unwrap().len(), 0);
+        assert_eq!(list_tasks(&conn, TaskList::Backlog).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn move_task_backlog_to_urgent() {
+        let conn = test_conn();
+        let task = create_task(&conn, "back", TaskList::Backlog).unwrap();
+        let moved = move_task_to_list(&conn, task.id, URGENT).unwrap();
+        assert_eq!(moved.list, URGENT);
+        assert_eq!(list_tasks(&conn, TaskList::Backlog).unwrap().len(), 0);
+        assert_eq!(list_tasks(&conn, URGENT).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn move_task_rejects_daily() {
+        let conn = test_conn();
+        let task = create_task(&conn, "daily", TaskList::Daily).unwrap();
+        let err = move_task_to_list(&conn, task.id, TaskList::Backlog).unwrap_err();
+        assert!(err.contains("urgent and backlog"));
+    }
+
+    #[test]
+    fn purge_includes_backlog() {
+        let conn = test_conn();
+        insert_task(
+            &conn,
+            "backlog old",
+            true,
+            Some("2026-06-01 00:00:00"),
+            Some("2026-06-01 00:00:00"),
+            TaskList::Backlog,
+        );
+        let deleted = purge_completed_by_created_date(&conn, "2026-06-09").unwrap();
+        assert_eq!(deleted, 1);
+        assert_eq!(list_tasks(&conn, TaskList::Backlog).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn list_tasks_backlog_isolated() {
+        let conn = test_conn();
+        create_task(&conn, "urgent", URGENT).unwrap();
+        create_task(&conn, "backlog", TaskList::Backlog).unwrap();
+        assert_eq!(list_tasks(&conn, URGENT).unwrap().len(), 1);
+        assert_eq!(list_tasks(&conn, TaskList::Backlog).unwrap().len(), 1);
     }
 }

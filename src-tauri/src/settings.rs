@@ -31,6 +31,8 @@ pub struct AppSettings {
     pub task_update_interval_hours: u32,
     #[serde(default = "default_true")]
     pub show_completed_tasks: bool,
+    #[serde(default = "default_true")]
+    pub use_backlog: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default, PartialEq)]
@@ -43,6 +45,7 @@ pub struct SettingsPatch {
     #[serde(alias = "purge_interval_hours")]
     pub task_update_interval_hours: Option<u32>,
     pub show_completed_tasks: Option<bool>,
+    pub use_backlog: Option<bool>,
 }
 
 fn default_panel_width() -> u32 {
@@ -76,6 +79,7 @@ impl Default for AppSettings {
             confirm_task_delete: true,
             task_update_interval_hours: 6,
             show_completed_tasks: true,
+            use_backlog: true,
         }
     }
 }
@@ -120,6 +124,9 @@ pub fn apply_patch(mut settings: AppSettings, patch: SettingsPatch) -> Result<Ap
     }
     if let Some(show_completed_tasks) = patch.show_completed_tasks {
         settings.show_completed_tasks = show_completed_tasks;
+    }
+    if let Some(use_backlog) = patch.use_backlog {
+        settings.use_backlog = use_backlog;
     }
     validate(&settings)?;
     Ok(settings)
@@ -171,6 +178,7 @@ mod tests {
             confirm_task_delete: false,
             task_update_interval_hours: 12,
             show_completed_tasks: false,
+            use_backlog: false,
         };
         settings_save_to_dir(dir.path(), &written).unwrap();
         let loaded = settings_load_from_dir(dir.path());
@@ -242,5 +250,30 @@ mod tests {
         .unwrap();
         assert!(!merged.show_created_at);
         assert_eq!(merged.hotkey, DEFAULT_HOTKEY);
+    }
+
+    #[test]
+    fn use_backlog_defaults_true() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"panel_width": 400}"#,
+        )
+        .unwrap();
+        let loaded = settings_load_from_dir(dir.path());
+        assert!(loaded.use_backlog);
+    }
+
+    #[test]
+    fn apply_patch_use_backlog() {
+        let merged = apply_patch(
+            AppSettings::default(),
+            SettingsPatch {
+                use_backlog: Some(false),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        assert!(!merged.use_backlog);
     }
 }

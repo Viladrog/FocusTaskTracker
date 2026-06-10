@@ -1,4 +1,4 @@
-export type TaskList = "urgent" | "daily" | "weekly";
+export type TaskList = "urgent" | "daily" | "weekly" | "backlog";
 
 export type Task = {
   id: number;

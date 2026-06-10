@@ -355,6 +355,52 @@ body {
   color: #4c6fff;
 }
 
+.task-actions {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.task-action-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #8b93a7;
+  font-size: 13px;
+  line-height: 1;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-action-btn:hover {
+  background: #2a2f3a;
+  color: #b8bfd0;
+}
+
+.task-editing .task-action-btn--edit {
+  color: #4c6fff;
+}
+
+.task-action-btn--delete {
+  font-size: 16px;
+}
+
+.task-action-btn--backlog {
+  font-size: 15px;
+  -webkit-text-stroke: 0.8px currentColor;
+  paint-order: stroke fill;
+}
+
+.task-action-btn--delete:hover {
+  color: #ffb4b4;
+}
+
 .delete {
   flex-shrink: 0;
   width: 28px;

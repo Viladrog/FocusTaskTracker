@@ -111,7 +111,6 @@ type TaskRowEditProps = {
   editDraft: string;
   onEditDraftChange: (value: string) => void;
   onEditKeyDown: (e: React.KeyboardEvent, taskId: number) => void;
-  onEditClick: (task: Task) => void;
 };
 
 function TaskEditZone({
@@ -120,7 +119,6 @@ function TaskEditZone({
   editDraft,
   onEditDraftChange,
   onEditKeyDown,
-  onEditClick,
   inputRef,
   showCreatedAt,
 }: TaskRowEditProps & {
@@ -167,17 +165,75 @@ function TaskEditZone({
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+function TaskActions({
+  showBacklogAction,
+  backlogActionIcon,
+  backlogActionLabel,
+  onBacklogAction,
+  onEditClick,
+  onDeleteRequest,
+  taskId,
+  stopPropagation,
+}: {
+  showBacklogAction: boolean;
+  backlogActionIcon: string;
+  backlogActionLabel: string;
+  onBacklogAction: (id: number) => void;
+  onEditClick: () => void;
+  onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
+  taskId: number;
+  stopPropagation: boolean;
+}) {
+  const stop = stopPropagation
+    ? {
+        onPointerDown: (e: React.PointerEvent) => e.stopPropagation(),
+        onClick: (e: React.MouseEvent) => e.stopPropagation(),
+      }
+    : {};
+
+  return (
+    <div className="task-actions">
       <button
         type="button"
-        className="edit"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onEditClick(task);
-        }}
+        className="task-action-btn task-action-btn--edit"
         aria-label="Редактировать"
+        {...stop}
+        onClick={(e) => {
+          if (stopPropagation) e.stopPropagation();
+          onEditClick();
+        }}
       >
         ✎
+      </button>
+      {showBacklogAction ? (
+        <button
+          type="button"
+          className="task-action-btn task-action-btn--backlog"
+          aria-label={backlogActionLabel}
+          {...stop}
+          onClick={(e) => {
+            if (stopPropagation) e.stopPropagation();
+            onBacklogAction(taskId);
+          }}
+        >
+          {backlogActionIcon}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="task-action-btn task-action-btn--delete"
+        aria-label="Удалить"
+        {...(stopPropagation ? { onPointerDown: stop.onPointerDown } : {})}
+        onClick={(e) => {
+          if (stopPropagation) e.stopPropagation();
+          onDeleteRequest(taskId, e.currentTarget);
+        }}
+      >
+        ×
       </button>
     </div>
   );
@@ -192,13 +248,22 @@ function SortableActiveRow({
   onEditDraftChange,
   onEditKeyDown,
   onEditClick,
+  onBacklogAction,
   inputRef,
   showCreatedAt,
+  showBacklogAction,
+  backlogActionIcon,
+  backlogActionLabel,
 }: TaskRowEditProps & {
   onToggle: (id: number) => void;
   onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
+  onEditClick: (task: Task) => void;
+  onBacklogAction: (id: number) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
   showCreatedAt: boolean;
+  showBacklogAction: boolean;
+  backlogActionIcon: string;
+  backlogActionLabel: string;
 }) {
   const {
     attributes,
@@ -241,22 +306,19 @@ function SortableActiveRow({
         editDraft={editDraft}
         onEditDraftChange={onEditDraftChange}
         onEditKeyDown={onEditKeyDown}
-        onEditClick={onEditClick}
         inputRef={inputRef}
         showCreatedAt={showCreatedAt}
       />
-      <button
-        type="button"
-        className="delete"
-        onPointerDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onDeleteRequest(task.id, e.currentTarget);
-        }}
-        aria-label="Удалить"
-      >
-        ×
-      </button>
+      <TaskActions
+        showBacklogAction={showBacklogAction}
+        backlogActionIcon={backlogActionIcon}
+        backlogActionLabel={backlogActionLabel}
+        onBacklogAction={onBacklogAction}
+        onEditClick={() => onEditClick(task)}
+        onDeleteRequest={onDeleteRequest}
+        taskId={task.id}
+        stopPropagation
+      />
     </li>
   );
 }
@@ -270,13 +332,22 @@ function DoneRow({
   onEditDraftChange,
   onEditKeyDown,
   onEditClick,
+  onBacklogAction,
   inputRef,
   showCreatedAt,
+  showBacklogAction,
+  backlogActionIcon,
+  backlogActionLabel,
 }: TaskRowEditProps & {
   onToggle: (id: number) => void;
   onDeleteRequest: (id: number, button: HTMLButtonElement) => void;
+  onEditClick: (task: Task) => void;
+  onBacklogAction: (id: number) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
   showCreatedAt: boolean;
+  showBacklogAction: boolean;
+  backlogActionIcon: string;
+  backlogActionLabel: string;
 }) {
   return (
     <li className={isEditing ? "task done task-editing" : "task done"}>
@@ -291,27 +362,29 @@ function DoneRow({
         editDraft={editDraft}
         onEditDraftChange={onEditDraftChange}
         onEditKeyDown={onEditKeyDown}
-        onEditClick={onEditClick}
         inputRef={inputRef}
         showCreatedAt={showCreatedAt}
       />
-      <button
-        type="button"
-        className="delete"
-        onClick={(e) => onDeleteRequest(task.id, e.currentTarget)}
-        aria-label="Удалить"
-      >
-        ×
-      </button>
+      <TaskActions
+        showBacklogAction={showBacklogAction}
+        backlogActionIcon={backlogActionIcon}
+        backlogActionLabel={backlogActionLabel}
+        onBacklogAction={onBacklogAction}
+        onEditClick={() => onEditClick(task)}
+        onDeleteRequest={onDeleteRequest}
+        taskId={task.id}
+        stopPropagation={false}
+      />
     </li>
   );
 }
 
-const TABS: { id: TaskList; label: string }[] = [
+const CORE_TABS: { id: TaskList; label: string }[] = [
   { id: "urgent", label: "Задачи" },
   { id: "daily", label: "Ежедневные" },
   { id: "weekly", label: "Еженедельные" },
 ];
+const BACKLOG_TAB = { id: "backlog" as const, label: "Бэклог" };
 
 function applyUiSettings(settings: AppSettings) {
   return {
@@ -319,6 +392,7 @@ function applyUiSettings(settings: AppSettings) {
     showCreatedAt: settings.show_created_at,
     showCompletedTasks: settings.show_completed_tasks,
     confirmTaskDelete: settings.confirm_task_delete,
+    useBacklog: settings.use_backlog,
   };
 }
 
@@ -336,8 +410,11 @@ function App() {
   const [showCreatedAt, setShowCreatedAt] = useState(true);
   const [showCompletedTasks, setShowCompletedTasks] = useState(true);
   const [confirmTaskDelete, setConfirmTaskDelete] = useState(true);
+  const [useBacklog, setUseBacklog] = useState(true);
   const deleteConfirmRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const activeListRef = useRef<TaskList>(activeList);
+  activeListRef.current = activeList;
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -378,6 +455,7 @@ function App() {
         setShowCreatedAt(ui.showCreatedAt);
         setShowCompletedTasks(ui.showCompletedTasks);
         setConfirmTaskDelete(ui.confirmTaskDelete);
+        setUseBacklog(ui.useBacklog);
       })
       .catch((e) => setLoadError(String(e)));
   }, []);
@@ -392,6 +470,10 @@ function App() {
       setShowCreatedAt(ui.showCreatedAt);
       setShowCompletedTasks(ui.showCompletedTasks);
       setConfirmTaskDelete(ui.confirmTaskDelete);
+      setUseBacklog(ui.useBacklog);
+      if (!ui.useBacklog && activeListRef.current === "backlog") {
+        setActiveList("urgent");
+      }
     }).then((fn) => {
       if (cancelled) {
         fn();
@@ -430,7 +512,19 @@ function App() {
     };
   }, [activeList]);
 
-  const showCreatedAtForList = showCreatedAt && activeList === "urgent";
+  const showCreatedAtForList =
+    showCreatedAt && (activeList === "urgent" || activeList === "backlog");
+
+  const visibleTabs = useMemo(
+    () => (useBacklog ? [...CORE_TABS, BACKLOG_TAB] : CORE_TABS),
+    [useBacklog],
+  );
+
+  const showBacklogActions =
+    useBacklog && (activeList === "urgent" || activeList === "backlog");
+  const backlogActionIcon = activeList === "urgent" ? "⤵" : "↩";
+  const backlogActionLabel =
+    activeList === "urgent" ? "В бэклог" : "Вернуть в задачи";
 
   const addTask = async () => {
     const title = draft.trim();
@@ -551,8 +645,9 @@ function App() {
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as Element;
       if (target.closest?.(".task-edit-zone")) return;
+      if (target.closest?.(".task-actions")) return;
       if (deleteConfirmRef.current?.contains(target)) return;
-      if (target.closest?.(".delete")) {
+      if (target.closest?.(".task-action-btn--delete")) {
         cancelEdit();
         return;
       }
@@ -577,7 +672,7 @@ function App() {
     const onPointerDown = (e: PointerEvent) => {
       const target = e.target as Node;
       if (deleteConfirmRef.current?.contains(target)) return;
-      if ((target as Element).closest?.(".delete")) return;
+      if ((target as Element).closest?.(".task-action-btn--delete")) return;
       setDeleteConfirm(null);
     };
 
@@ -606,6 +701,19 @@ function App() {
     setTasks((t) => t.filter((item) => item.id !== id));
     try {
       await invoke("task_delete", { id });
+      setLoadError(null);
+    } catch (e) {
+      setTasks(prev);
+      setLoadError(String(e));
+    }
+  };
+
+  const moveTaskList = async (id: number) => {
+    const targetList: TaskList = activeList === "urgent" ? "backlog" : "urgent";
+    const prev = tasks;
+    setTasks((t) => t.filter((item) => item.id !== id));
+    try {
+      await invoke<Task>("task_move_list", { id, list: targetList });
       setLoadError(null);
     } catch (e) {
       setTasks(prev);
@@ -679,10 +787,10 @@ function App() {
       {loadError ? <p className="error">{loadError}</p> : null}
 
       <nav className="tab-bar" aria-label="Списки задач">
-        {TABS.map((tab, index) => {
+        {visibleTabs.map((tab, index) => {
           const isActive = activeList === tab.id;
           const isFirst = index === 0;
-          const isLast = index === TABS.length - 1;
+          const isLast = index === visibleTabs.length - 1;
           return (
             <div key={tab.id} className="tab-slot">
               <button
@@ -743,8 +851,12 @@ function App() {
                   onEditDraftChange={setEditDraft}
                   onEditKeyDown={handleEditKeyDown}
                   onEditClick={toggleEdit}
+                  onBacklogAction={(id) => void moveTaskList(id)}
                   inputRef={editInputRef}
                   showCreatedAt={showCreatedAtForList}
+                  showBacklogAction={showBacklogActions}
+                  backlogActionIcon={backlogActionIcon}
+                  backlogActionLabel={backlogActionLabel}
                 />
               ))}
             </ul>
@@ -762,8 +874,12 @@ function App() {
                   onEditDraftChange={setEditDraft}
                   onEditKeyDown={handleEditKeyDown}
                   onEditClick={toggleEdit}
+                  onBacklogAction={(id) => void moveTaskList(id)}
                   inputRef={editInputRef}
                   showCreatedAt={showCreatedAtForList}
+                  showBacklogAction={showBacklogActions}
+                  backlogActionIcon={backlogActionIcon}
+                  backlogActionLabel={backlogActionLabel}
                 />
               ))}
             </ul>

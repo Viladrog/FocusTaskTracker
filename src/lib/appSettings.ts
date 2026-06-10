@@ -7,6 +7,7 @@ export type AppSettings = {
   confirm_task_delete: boolean;
   task_update_interval_hours: number;
   show_completed_tasks: boolean;
+  use_backlog: boolean;
 };
 
 export type SettingsPatch = {
@@ -17,6 +18,7 @@ export type SettingsPatch = {
   confirm_task_delete?: boolean;
   task_update_interval_hours?: number;
   show_completed_tasks?: boolean;
+  use_backlog?: boolean;
 };
 
 export const DEFAULT_HOTKEY = "ctrl+shift+space";

@@ -42,6 +42,7 @@ pub enum TaskList {
     Urgent,
     Daily,
     Weekly,
+    Backlog,
 }
 
 impl TaskList {
@@ -50,6 +51,7 @@ impl TaskList {
             TaskList::Urgent => "urgent",
             TaskList::Daily => "daily",
             TaskList::Weekly => "weekly",
+            TaskList::Backlog => "backlog",
         }
     }
 
@@ -58,6 +60,7 @@ impl TaskList {
             "urgent" => Ok(TaskList::Urgent),
             "daily" => Ok(TaskList::Daily),
             "weekly" => Ok(TaskList::Weekly),
+            "backlog" => Ok(TaskList::Backlog),
             _ => Err(format!("invalid task list: {s}")),
         }
     }
@@ -272,6 +275,17 @@ fn task_move_active(
         task: result.task,
         rebalanced: result.rebalanced,
     })
+}
+
+#[tauri::command]
+fn task_move_list(
+    db: tauri::State<'_, Mutex<Connection>>,
+    id: i64,
+    list: String,
+) -> Result<Task, String> {
+    let target = TaskList::parse(&list)?;
+    let conn = db.lock().map_err(|e| e.to_string())?;
+    db::move_task_to_list(&conn, id, target)
 }
 
 const PANEL_APP_BG: Color = Color(20, 22, 28, 255);
@@ -570,6 +584,7 @@ pub fn run() {
             task_set_done,
             task_delete,
             task_move_active,
+            task_move_list,
             panel_toggle,
             settings_load,
             settings_set,

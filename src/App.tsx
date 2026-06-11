@@ -134,8 +134,16 @@ function TaskEditZone({
     }
   }, [isEditing, inputRef]);
 
+  const withDateLayout = showCreatedAt && !isEditing;
+
   return (
-    <div className="task-edit-zone">
+    <div
+      className={
+        withDateLayout
+          ? "task-edit-zone task-edit-zone--with-date"
+          : "task-edit-zone"
+      }
+    >
       <div className="task-text-block">
         {isEditing ? (
           <input

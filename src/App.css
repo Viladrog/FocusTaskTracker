@@ -269,13 +269,20 @@ body {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 8px;
+}
+
+.task-edit-zone--with-date {
+  align-items: flex-start;
 }
 
 .task-text-block {
   flex: 1;
   min-width: 0;
+}
+
+.task-edit-zone--with-date .task-text-block {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -434,7 +441,6 @@ body {
 
 input[type="checkbox"] {
   flex-shrink: 0;
-  margin-top: 2px;
   accent-color: #3d5afe;
 }
 

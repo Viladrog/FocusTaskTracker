@@ -2,6 +2,14 @@
   color-scheme: dark;
   font-family: "Segoe UI", system-ui, sans-serif;
   font-size: 14px;
+  --app-bg: #14161c;
+  --tab-strip-bg: #2a2f3a;
+  --tab-inactive-bg: #3a4150;
+  --tab-inactive-hover-bg: #454d5e;
+  --tab-inactive-text: #9aa3b5;
+  --tab-divider: #252a36;
+  --tab-radius: 8px;
+  --tab-scoop: 6px;
 }
 
 *,
@@ -12,7 +20,7 @@
 
 body {
   margin: 0;
-  background: #14161c;
+  background: var(--app-bg);
   color: #e8eaef;
   overflow: hidden;
   user-select: none;
@@ -75,6 +83,113 @@ body {
 
 .hint:hover {
   color: #b8bfd0;
+}
+
+.tab-bar {
+  display: flex;
+  align-items: flex-end;
+  flex-shrink: 0;
+  overflow: visible;
+  background: var(--tab-strip-bg);
+}
+
+.tab-slot {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  min-width: 0;
+}
+
+.tab-slot:has(.tab-active) {
+  z-index: 2;
+}
+
+.tab {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  overflow: visible;
+  margin: 0;
+  margin-top: 4px;
+  padding: 8px 6px;
+  border: none;
+  -webkit-appearance: none;
+  appearance: none;
+  border-right: 1px solid var(--tab-divider);
+  border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+  background: var(--tab-inactive-bg);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--tab-inactive-text);
+  cursor: pointer;
+  text-align: center;
+}
+
+.tab-slot:last-child .tab {
+  border-right: none;
+}
+
+.tab-slot:has(+ .tab-slot > .tab-active) .tab:not(.tab-active) {
+  border-right-color: transparent;
+}
+
+.tab:hover:not(.tab-active) {
+  color: #c5ccd8;
+  background: var(--tab-inactive-hover-bg);
+}
+
+.tab-active {
+  border-right: none;
+  border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+  background: var(--app-bg);
+  color: #e8eaef;
+  font-weight: 600;
+}
+
+/* Round-out tabs (css-tricks): серый уголок + тень контента */
+.tab-active:not(.tab-active-first)::before,
+.tab-active:not(.tab-active-last)::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: var(--tab-scoop);
+  height: var(--tab-scoop);
+  background: var(--tab-inactive-bg);
+  pointer-events: none;
+}
+
+.tab-active:not(.tab-active-first)::before {
+  left: calc(-1 * var(--tab-scoop));
+  border-bottom-right-radius: var(--tab-scoop);
+  box-shadow: calc(var(--tab-scoop) / 2) 0 0 0 var(--app-bg);
+}
+
+.tab-active:not(.tab-active-last)::after {
+  right: calc(-1 * var(--tab-scoop));
+  border-bottom-left-radius: var(--tab-scoop);
+  box-shadow: calc(var(--tab-scoop) / 2 * -1) 0 0 0 var(--app-bg);
+}
+
+/* Выемка под цвет соседней вкладки при hover */
+.tab-slot:has(> .tab:hover:not(.tab-active)):has(+ .tab-slot > .tab-active)
+  + .tab-slot
+  > .tab-active::before {
+  background: var(--tab-inactive-hover-bg);
+}
+
+.tab-slot:has(> .tab-active):has(+ .tab-slot > .tab:hover:not(.tab-active))
+  > .tab-active::after {
+  background: var(--tab-inactive-hover-bg);
+}
+
+.app-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  background: var(--app-bg);
 }
 
 .error {

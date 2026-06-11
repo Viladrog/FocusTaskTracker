@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 pub const DEFAULT_PANEL_WIDTH: u32 = 360;
 pub const DEFAULT_HOTKEY: &str = "ctrl+shift+space";
 pub const MAX_RETENTION_DAYS: u32 = 365;
-pub const MIN_PURGE_INTERVAL_HOURS: u32 = 1;
-pub const MAX_PURGE_INTERVAL_HOURS: u32 = 168;
+pub const MIN_TASK_UPDATE_INTERVAL_HOURS: u32 = 1;
+pub const MAX_TASK_UPDATE_INTERVAL_HOURS: u32 = 168;
 pub const SETTINGS_FILE: &str = "settings.json";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -23,8 +23,12 @@ pub struct AppSettings {
     pub completed_retention_days: u32,
     #[serde(default = "default_true")]
     pub confirm_task_delete: bool,
-    #[serde(default = "default_purge_interval_hours")]
-    pub purge_interval_hours: u32,
+    #[serde(
+        rename = "task_update_interval_hours",
+        alias = "purge_interval_hours",
+        default = "default_task_update_interval_hours"
+    )]
+    pub task_update_interval_hours: u32,
     #[serde(default = "default_true")]
     pub show_completed_tasks: bool,
 }
@@ -36,7 +40,8 @@ pub struct SettingsPatch {
     pub show_created_at: Option<bool>,
     pub completed_retention_days: Option<u32>,
     pub confirm_task_delete: Option<bool>,
-    pub purge_interval_hours: Option<u32>,
+    #[serde(alias = "purge_interval_hours")]
+    pub task_update_interval_hours: Option<u32>,
     pub show_completed_tasks: Option<bool>,
 }
 
@@ -56,7 +61,7 @@ fn default_retention_days() -> u32 {
     1
 }
 
-fn default_purge_interval_hours() -> u32 {
+fn default_task_update_interval_hours() -> u32 {
     6
 }
 
@@ -69,7 +74,7 @@ impl Default for AppSettings {
             show_created_at: true,
             completed_retention_days: 1,
             confirm_task_delete: true,
-            purge_interval_hours: 6,
+            task_update_interval_hours: 6,
             show_completed_tasks: true,
         }
     }
@@ -81,11 +86,11 @@ pub fn validate(settings: &AppSettings) -> Result<(), String> {
             "completed_retention_days must be <= {MAX_RETENTION_DAYS}"
         ));
     }
-    if settings.purge_interval_hours < MIN_PURGE_INTERVAL_HOURS
-        || settings.purge_interval_hours > MAX_PURGE_INTERVAL_HOURS
+    if settings.task_update_interval_hours < MIN_TASK_UPDATE_INTERVAL_HOURS
+        || settings.task_update_interval_hours > MAX_TASK_UPDATE_INTERVAL_HOURS
     {
         return Err(format!(
-            "purge_interval_hours must be between {MIN_PURGE_INTERVAL_HOURS} and {MAX_PURGE_INTERVAL_HOURS}"
+            "task_update_interval_hours must be between {MIN_TASK_UPDATE_INTERVAL_HOURS} and {MAX_TASK_UPDATE_INTERVAL_HOURS}"
         ));
     }
     if settings.hotkey.trim().is_empty() {
@@ -110,8 +115,8 @@ pub fn apply_patch(mut settings: AppSettings, patch: SettingsPatch) -> Result<Ap
     if let Some(confirm_task_delete) = patch.confirm_task_delete {
         settings.confirm_task_delete = confirm_task_delete;
     }
-    if let Some(purge_interval_hours) = patch.purge_interval_hours {
-        settings.purge_interval_hours = purge_interval_hours;
+    if let Some(task_update_interval_hours) = patch.task_update_interval_hours {
+        settings.task_update_interval_hours = task_update_interval_hours;
     }
     if let Some(show_completed_tasks) = patch.show_completed_tasks {
         settings.show_completed_tasks = show_completed_tasks;
@@ -164,7 +169,7 @@ mod tests {
             show_created_at: false,
             completed_retention_days: 3,
             confirm_task_delete: false,
-            purge_interval_hours: 12,
+            task_update_interval_hours: 12,
             show_completed_tasks: false,
         };
         settings_save_to_dir(dir.path(), &written).unwrap();
@@ -185,7 +190,7 @@ mod tests {
         assert_eq!(loaded.hotkey, DEFAULT_HOTKEY);
         assert!(loaded.show_created_at);
         assert_eq!(loaded.completed_retention_days, 1);
-        assert_eq!(loaded.purge_interval_hours, 6);
+        assert_eq!(loaded.task_update_interval_hours, 6);
     }
 
     #[test]
@@ -200,16 +205,28 @@ mod tests {
     }
 
     #[test]
-    fn validate_purge_interval_hours() {
+    fn validate_task_update_interval_hours() {
         let mut s = AppSettings::default();
-        s.purge_interval_hours = 1;
+        s.task_update_interval_hours = 1;
         assert!(validate(&s).is_ok());
-        s.purge_interval_hours = 168;
+        s.task_update_interval_hours = 168;
         assert!(validate(&s).is_ok());
-        s.purge_interval_hours = 0;
+        s.task_update_interval_hours = 0;
         assert!(validate(&s).is_err());
-        s.purge_interval_hours = 169;
+        s.task_update_interval_hours = 169;
         assert!(validate(&s).is_err());
+    }
+
+    #[test]
+    fn settings_reads_legacy_purge_interval_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join(SETTINGS_FILE),
+            r#"{"purge_interval_hours": 12}"#,
+        )
+        .unwrap();
+        let loaded = settings_load_from_dir(dir.path());
+        assert_eq!(loaded.task_update_interval_hours, 12);
     }
 
     #[test]

@@ -42,6 +42,33 @@ use settings::{AppSettings, DEFAULT_PANEL_WIDTH, SettingsPatch};
 
 use tauri_plugin_global_shortcut::Shortcut;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskList {
+    Urgent,
+    Daily,
+    Weekly,
+}
+
+impl TaskList {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            TaskList::Urgent => "urgent",
+            TaskList::Daily => "daily",
+            TaskList::Weekly => "weekly",
+        }
+    }
+
+    pub fn parse(s: &str) -> Result<Self, String> {
+        match s {
+            "urgent" => Ok(TaskList::Urgent),
+            "daily" => Ok(TaskList::Daily),
+            "weekly" => Ok(TaskList::Weekly),
+            _ => Err(format!("invalid task list: {s}")),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Task {
     pub id: i64,
@@ -50,6 +77,7 @@ pub struct Task {
     pub completed_at: Option<String>,
     pub position: f64,
     pub created_at: Option<String>,
+    pub list: TaskList,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -110,27 +138,32 @@ fn settings_save(app: &tauri::AppHandle, settings: &AppSettings) -> Result<(), S
     settings::settings_save_to_dir(&dir, settings)
 }
 
-fn run_purge(app: &tauri::AppHandle, db: &Mutex<Connection>) -> Result<usize, String> {
+fn run_task_maintenance(app: &tauri::AppHandle, db: &Mutex<Connection>) -> Result<usize, String> {
     let settings = load_app_settings(app);
     let cutoff = purge_boundary::retention_cutoff_date(settings.completed_retention_days);
+    let today = purge_boundary::local_today();
+    let week_start = purge_boundary::local_week_start();
     let conn = db.lock().map_err(|e| e.to_string())?;
-    db::purge_completed_by_created_date(&conn, &cutoff)
+    let purged = db::purge_completed_by_created_date(&conn, &cutoff)?;
+    let daily = db::reset_daily_tasks(&conn, &today)?;
+    let weekly = db::reset_weekly_tasks(&conn, &week_start)?;
+    Ok(purged + daily + weekly)
 }
 
-fn spawn_purge_scheduler(app: tauri::AppHandle) {
+fn spawn_task_maintenance_scheduler(app: tauri::AppHandle) {
     thread::spawn(move || loop {
         if APP_EXITING.load(Ordering::SeqCst) {
             break;
         }
         let hours = load_app_settings(&app)
-            .purge_interval_hours
-            .max(settings::MIN_PURGE_INTERVAL_HOURS);
+            .task_update_interval_hours
+            .max(settings::MIN_TASK_UPDATE_INTERVAL_HOURS);
         thread::sleep(Duration::from_secs(u64::from(hours) * 3600));
         if APP_EXITING.load(Ordering::SeqCst) {
             break;
         }
         let db = app.state::<Mutex<Connection>>();
-        if let Ok(n) = run_purge(&app, &db) {
+        if let Ok(n) = run_task_maintenance(&app, &db) {
             if n > 0 {
                 let _ = app.emit("tasks-purged", ());
             }
@@ -205,7 +238,7 @@ fn apply_settings_side_effects(
         sync_autostart(app, settings.autostart)?;
     }
     if patch.completed_retention_days.is_some() {
-        let n = run_purge(app, db)?;
+        let n = run_task_maintenance(app, db)?;
         if n > 0 {
             let _ = app.emit("tasks-purged", ());
         }
@@ -219,16 +252,25 @@ fn backend_ready() -> bool {
 }
 
 #[tauri::command]
-fn tasks_load(db: tauri::State<'_, Mutex<Connection>>) -> Result<Vec<Task>, String> {
+fn tasks_load(
+    db: tauri::State<'_, Mutex<Connection>>,
+    list: String,
+) -> Result<Vec<Task>, String> {
+    let list = TaskList::parse(&list)?;
     let conn = db.lock().map_err(|e| e.to_string())?;
-    db::list_tasks(&conn)
+    db::list_tasks(&conn, list)
 }
 
 #[tauri::command]
-fn task_create(db: tauri::State<'_, Mutex<Connection>>, title: String) -> Result<Task, String> {
+fn task_create(
+    db: tauri::State<'_, Mutex<Connection>>,
+    title: String,
+    list: String,
+) -> Result<Task, String> {
     let title = title_validation::normalize_task_title(&title)?;
+    let list = TaskList::parse(&list)?;
     let conn = db.lock().map_err(|e| e.to_string())?;
-    db::create_task(&conn, title)
+    db::create_task(&conn, title, list)
 }
 
 #[tauri::command]
@@ -541,8 +583,8 @@ pub fn run() {
             sync_autostart_from_settings(&handle, &settings)?;
 
             let db = handle.state::<Mutex<Connection>>();
-            let _ = run_purge(&handle, &db);
-            spawn_purge_scheduler(handle.clone());
+            let _ = run_task_maintenance(&handle, &db);
+            spawn_task_maintenance_scheduler(handle.clone());
 
             let win = app.get_webview_window("main").expect("main webview window");
             place_panel_window(&win, &handle).expect("place panel");

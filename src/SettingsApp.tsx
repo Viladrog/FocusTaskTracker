@@ -48,7 +48,7 @@ function SettingsApp() {
       .then((loaded) => {
         setSettings(loaded);
         setRetentionDraft(String(loaded.completed_retention_days));
-        setIntervalDraft(String(loaded.purge_interval_hours));
+        setIntervalDraft(String(loaded.task_update_interval_hours));
         setError(null);
       })
       .catch((e) => setError(String(e)));
@@ -119,10 +119,10 @@ function SettingsApp() {
       setError("Укажите целое число часов");
       return;
     }
-    void patchSettings({ purge_interval_hours: value })
+    void patchSettings({ task_update_interval_hours: value })
       .then((updated) => {
         setSettings(updated);
-        setIntervalDraft(String(updated.purge_interval_hours));
+        setIntervalDraft(String(updated.task_update_interval_hours));
         setError(null);
       })
       .catch((e) => setError(String(e)));
@@ -179,7 +179,7 @@ function SettingsApp() {
             }}
           />
         </SettingsField>
-        <SettingsField label="Интервал удаления выполненных (ч)">
+        <SettingsField label="Интервал обновления задач (ч)">
           <input
             type="number"
             className="settings-number"

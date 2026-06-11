@@ -1,3 +1,5 @@
+export type TaskList = "urgent" | "daily" | "weekly";
+
 export type Task = {
   id: number;
   title: string;
@@ -5,6 +7,7 @@ export type Task = {
   completed_at: string | null;
   position: number;
   created_at: string;
+  list: TaskList;
 };
 
 export function orderTasks(tasks: Task[]): Task[] {

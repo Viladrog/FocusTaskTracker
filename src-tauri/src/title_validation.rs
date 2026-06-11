@@ -13,10 +13,7 @@ mod tests {
 
     #[test]
     fn task_create_rejects_empty_title() {
-        assert_eq!(
-            normalize_task_title(""),
-            Err("title is empty".to_string())
-        );
+        assert_eq!(normalize_task_title(""), Err("title is empty".to_string()));
         assert_eq!(
             normalize_task_title("   "),
             Err("title is empty".to_string())

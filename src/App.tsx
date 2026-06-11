@@ -20,7 +20,7 @@ import { listen } from "@tauri-apps/api/event";
 import { invokeWhenBackendReady } from "./lib/invokeWhenBackendReady";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getDeleteConfirmPosition } from "./lib/deleteConfirmPosition";
-import { orderTasks, type Task } from "./lib/orderTasks";
+import { orderTasks, type Task, type TaskList } from "./lib/orderTasks";
 import { type AppSettings } from "./lib/appSettings";
 import { formatTaskDateTime } from "./lib/formatTaskDateTime";
 import { formatHotkeyLabel } from "./lib/formatHotkeyLabel";
@@ -299,6 +299,12 @@ function DoneRow({
   );
 }
 
+const TABS: { id: TaskList; label: string }[] = [
+  { id: "urgent", label: "Задачи" },
+  { id: "daily", label: "Ежедневные" },
+  { id: "weekly", label: "Еженедельные" },
+];
+
 function applyUiSettings(settings: AppSettings) {
   return {
     hotkeyLabel: formatHotkeyLabel(settings.hotkey),
@@ -309,6 +315,7 @@ function applyUiSettings(settings: AppSettings) {
 }
 
 function App() {
+  const [activeList, setActiveList] = useState<TaskList>("urgent");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [draft, setDraft] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -342,15 +349,18 @@ function App() {
     [activeTasks],
   );
 
-  const loadTasks = async () => {
-    const loaded = await invokeWhenBackendReady<Task[]>("tasks_load");
+  const loadTasks = async (list: TaskList = activeList) => {
+    const loaded = await invokeWhenBackendReady<Task[]>("tasks_load", { list });
     setTasks(orderTasks(loaded));
     setLoadError(null);
   };
 
   useEffect(() => {
-    void loadTasks().catch((e) => setLoadError(String(e)));
-  }, []);
+    setEditingTaskId(null);
+    setEditDraft("");
+    setDeleteConfirm(null);
+    void loadTasks(activeList).catch((e) => setLoadError(String(e)));
+  }, [activeList]);
 
   useEffect(() => {
     void invokeWhenBackendReady<AppSettings>("settings_load")
@@ -394,7 +404,7 @@ function App() {
 
     void listen("tasks-purged", async () => {
       try {
-        if (!cancelled) await loadTasks();
+        if (!cancelled) await loadTasks(activeList);
       } catch (e) {
         if (!cancelled) setLoadError(String(e));
       }
@@ -410,13 +420,18 @@ function App() {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [activeList]);
+
+  const showCreatedAtForList = showCreatedAt && activeList === "urgent";
 
   const addTask = async () => {
     const title = draft.trim();
     if (!title) return;
     try {
-      const created = await invoke<Task>("task_create", { title });
+      const created = await invoke<Task>("task_create", {
+        title,
+        list: activeList,
+      });
       setTasks((prev) => orderTasks([...prev, created]));
       setDraft("");
       setLoadError(null);
@@ -610,7 +625,7 @@ function App() {
         { id: activeId, newIndex },
       );
       if (rebalanced) {
-        const loaded = await invoke<Task[]>("tasks_load");
+        const loaded = await invoke<Task[]>("tasks_load", { list: activeList });
         setTasks(orderTasks(loaded));
       } else {
         setTasks((current) =>
@@ -629,7 +644,7 @@ function App() {
   return (
     <div className="app">
       <header className="titlebar" data-tauri-drag-region>
-        <span className="title">Задачи</span>
+        <span className="title">Focus Task Tracker</span>
         <div className="titlebar-actions" data-tauri-drag-region={false}>
           <button
             type="button"
@@ -655,6 +670,34 @@ function App() {
 
       {loadError ? <p className="error">{loadError}</p> : null}
 
+      <nav className="tab-bar" aria-label="Списки задач">
+        {TABS.map((tab, index) => {
+          const isActive = activeList === tab.id;
+          const isFirst = index === 0;
+          const isLast = index === TABS.length - 1;
+          return (
+            <div key={tab.id} className="tab-slot">
+              <button
+                type="button"
+                className={[
+                  "tab",
+                  isActive && "tab-active",
+                  isActive && isFirst && "tab-active-first",
+                  isActive && isLast && "tab-active-last",
+                ]
+                  .filter(Boolean)
+                  .join(" ")}
+                aria-selected={isActive}
+                onClick={() => setActiveList(tab.id)}
+              >
+                {tab.label}
+              </button>
+            </div>
+          );
+        })}
+      </nav>
+
+      <div className="app-body">
       <div className="composer">
         <input
           type="text"
@@ -693,7 +736,7 @@ function App() {
                   onEditKeyDown={handleEditKeyDown}
                   onEditClick={toggleEdit}
                   inputRef={editInputRef}
-                  showCreatedAt={showCreatedAt}
+                  showCreatedAt={showCreatedAtForList}
                 />
               ))}
             </ul>
@@ -712,12 +755,13 @@ function App() {
                   onEditKeyDown={handleEditKeyDown}
                   onEditClick={toggleEdit}
                   inputRef={editInputRef}
-                  showCreatedAt={showCreatedAt}
+                  showCreatedAt={showCreatedAtForList}
                 />
               ))}
             </ul>
           ) : null}
         </DndContext>
+      </div>
       </div>
 
       {deleteConfirm ? (

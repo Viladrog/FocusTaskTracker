@@ -5,7 +5,7 @@ export type AppSettings = {
   show_created_at: boolean;
   completed_retention_days: number;
   confirm_task_delete: boolean;
-  purge_interval_hours: number;
+  task_update_interval_hours: number;
   show_completed_tasks: boolean;
 };
 
@@ -15,7 +15,7 @@ export type SettingsPatch = {
   show_created_at?: boolean;
   completed_retention_days?: number;
   confirm_task_delete?: boolean;
-  purge_interval_hours?: number;
+  task_update_interval_hours?: number;
   show_completed_tasks?: boolean;
 };
 

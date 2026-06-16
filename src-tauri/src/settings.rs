@@ -19,6 +19,8 @@ pub struct AppSettings {
     pub autostart: bool,
     #[serde(default = "default_true")]
     pub show_created_at: bool,
+    #[serde(default = "default_true")]
+    pub show_completed_at: bool,
     #[serde(default = "default_retention_days")]
     pub completed_retention_days: u32,
     #[serde(default = "default_true")]
@@ -44,6 +46,7 @@ pub struct SettingsPatch {
     pub hotkey: Option<String>,
     pub autostart: Option<bool>,
     pub show_created_at: Option<bool>,
+    pub show_completed_at: Option<bool>,
     pub completed_retention_days: Option<u32>,
     pub confirm_task_delete: Option<bool>,
     #[serde(alias = "purge_interval_hours")]
@@ -67,7 +70,7 @@ fn default_true() -> bool {
 }
 
 fn default_retention_days() -> u32 {
-    1
+    3
 }
 
 fn default_task_update_interval_hours() -> u32 {
@@ -81,7 +84,8 @@ impl Default for AppSettings {
             hotkey: default_hotkey(),
             autostart: false,
             show_created_at: true,
-            completed_retention_days: 1,
+            show_completed_at: true,
+            completed_retention_days: 3,
             confirm_task_delete: true,
             task_update_interval_hours: 6,
             show_completed_tasks: true,
@@ -120,6 +124,9 @@ pub fn apply_patch(mut settings: AppSettings, patch: SettingsPatch) -> Result<Ap
     }
     if let Some(show_created_at) = patch.show_created_at {
         settings.show_created_at = show_created_at;
+    }
+    if let Some(show_completed_at) = patch.show_completed_at {
+        settings.show_completed_at = show_completed_at;
     }
     if let Some(completed_retention_days) = patch.completed_retention_days {
         settings.completed_retention_days = completed_retention_days;
@@ -188,6 +195,7 @@ mod tests {
             hotkey: "ctrl+alt+k".to_string(),
             autostart: true,
             show_created_at: false,
+            show_completed_at: false,
             completed_retention_days: 3,
             confirm_task_delete: false,
             task_update_interval_hours: 12,
@@ -213,7 +221,8 @@ mod tests {
         assert_eq!(loaded.panel_width, 400);
         assert_eq!(loaded.hotkey, DEFAULT_HOTKEY);
         assert!(loaded.show_created_at);
-        assert_eq!(loaded.completed_retention_days, 1);
+        assert!(loaded.show_completed_at);
+        assert_eq!(loaded.completed_retention_days, 3);
         assert_eq!(loaded.task_update_interval_hours, 6);
     }
 
@@ -260,11 +269,13 @@ mod tests {
             base,
             SettingsPatch {
                 show_created_at: Some(false),
+                show_completed_at: Some(false),
                 ..Default::default()
             },
         )
         .unwrap();
         assert!(!merged.show_created_at);
+        assert!(!merged.show_completed_at);
         assert_eq!(merged.hotkey, DEFAULT_HOTKEY);
     }
 

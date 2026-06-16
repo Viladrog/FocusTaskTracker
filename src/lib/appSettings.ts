@@ -3,6 +3,7 @@ export type AppSettings = {
   hotkey: string;
   autostart: boolean;
   show_created_at: boolean;
+  show_completed_at: boolean;
   completed_retention_days: number;
   confirm_task_delete: boolean;
   task_update_interval_hours: number;
@@ -16,6 +17,7 @@ export type SettingsPatch = {
   hotkey?: string;
   autostart?: boolean;
   show_created_at?: boolean;
+  show_completed_at?: boolean;
   completed_retention_days?: number;
   confirm_task_delete?: boolean;
   task_update_interval_hours?: number;

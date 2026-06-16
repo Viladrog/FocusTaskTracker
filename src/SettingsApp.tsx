@@ -172,6 +172,13 @@ function SettingsApp() {
             onChange={(e) => applyBool({ show_created_at: e.target.checked })}
           />
         </SettingsField>
+        <SettingsField label="Отображать дату выполнения">
+          <input
+            type="checkbox"
+            checked={settings.show_completed_at}
+            onChange={(e) => applyBool({ show_completed_at: e.target.checked })}
+          />
+        </SettingsField>
         <SettingsField label="Показывать выполненные">
           <input
             type="checkbox"

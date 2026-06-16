@@ -121,9 +121,11 @@ function TaskEditZone({
   onEditKeyDown,
   inputRef,
   showCreatedAt,
+  showCompletedAt,
 }: TaskRowEditProps & {
   inputRef: React.RefObject<HTMLInputElement | null>;
   showCreatedAt: boolean;
+  showCompletedAt: boolean;
 }) {
   useEffect(() => {
     if (isEditing && inputRef.current) {
@@ -132,7 +134,9 @@ function TaskEditZone({
     }
   }, [isEditing, inputRef]);
 
-  const withDateLayout = showCreatedAt && !isEditing;
+  const shouldShowDate = task.done ? showCompletedAt : showCreatedAt;
+  const dateToShow = task.done ? task.completed_at : task.created_at;
+  const withDateLayout = shouldShowDate && dateToShow && !isEditing;
 
   return (
     <div
@@ -157,9 +161,9 @@ function TaskEditZone({
         ) : (
           <>
             <span className="task-title">{task.title}</span>
-            {showCreatedAt ? (
+            {shouldShowDate && dateToShow ? (
               <span className="task-created-at">
-                {formatTaskDateTime(task.created_at)}
+                {formatTaskDateTime(dateToShow)}
               </span>
             ) : null}
           </>
@@ -251,6 +255,7 @@ function SortableActiveRow({
   onBacklogAction,
   inputRef,
   showCreatedAt,
+  showCompletedAt,
   showBacklogAction,
   backlogActionIcon,
   backlogActionLabel,
@@ -261,6 +266,7 @@ function SortableActiveRow({
   onBacklogAction: (id: number) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
   showCreatedAt: boolean;
+  showCompletedAt: boolean;
   showBacklogAction: boolean;
   backlogActionIcon: string;
   backlogActionLabel: string;
@@ -308,6 +314,7 @@ function SortableActiveRow({
         onEditKeyDown={onEditKeyDown}
         inputRef={inputRef}
         showCreatedAt={showCreatedAt}
+        showCompletedAt={showCompletedAt}
       />
       <TaskActions
         showBacklogAction={showBacklogAction}
@@ -335,6 +342,7 @@ function DoneRow({
   onBacklogAction,
   inputRef,
   showCreatedAt,
+  showCompletedAt,
   showBacklogAction,
   backlogActionIcon,
   backlogActionLabel,
@@ -345,6 +353,7 @@ function DoneRow({
   onBacklogAction: (id: number) => void;
   inputRef: React.RefObject<HTMLInputElement | null>;
   showCreatedAt: boolean;
+  showCompletedAt: boolean;
   showBacklogAction: boolean;
   backlogActionIcon: string;
   backlogActionLabel: string;
@@ -364,6 +373,7 @@ function DoneRow({
         onEditKeyDown={onEditKeyDown}
         inputRef={inputRef}
         showCreatedAt={showCreatedAt}
+        showCompletedAt={showCompletedAt}
       />
       <TaskActions
         showBacklogAction={showBacklogAction}
@@ -388,6 +398,7 @@ function applyUiSettings(settings: AppSettings) {
   return {
     hotkeyLabel: formatHotkeyLabel(settings.hotkey),
     showCreatedAt: settings.show_created_at,
+    showCompletedAt: settings.show_completed_at,
     showCompletedTasks: settings.show_completed_tasks,
     confirmTaskDelete: settings.confirm_task_delete,
     useDaily: settings.use_daily,
@@ -408,6 +419,7 @@ function App() {
   const [editDraft, setEditDraft] = useState("");
   const [hotkeyLabel, setHotkeyLabel] = useState("Ctrl+Shift+Space");
   const [showCreatedAt, setShowCreatedAt] = useState(true);
+  const [showCompletedAt, setShowCompletedAt] = useState(true);
   const [showCompletedTasks, setShowCompletedTasks] = useState(true);
   const [confirmTaskDelete, setConfirmTaskDelete] = useState(true);
   const [useDaily, setUseDaily] = useState(true);
@@ -455,6 +467,7 @@ function App() {
         const ui = applyUiSettings(settings);
         setHotkeyLabel(ui.hotkeyLabel);
         setShowCreatedAt(ui.showCreatedAt);
+        setShowCompletedAt(ui.showCompletedAt);
         setShowCompletedTasks(ui.showCompletedTasks);
         setConfirmTaskDelete(ui.confirmTaskDelete);
         setUseDaily(ui.useDaily);
@@ -472,6 +485,7 @@ function App() {
       const ui = applyUiSettings(event.payload);
       setHotkeyLabel(ui.hotkeyLabel);
       setShowCreatedAt(ui.showCreatedAt);
+      setShowCompletedAt(ui.showCompletedAt);
       setShowCompletedTasks(ui.showCompletedTasks);
       setConfirmTaskDelete(ui.confirmTaskDelete);
       setUseDaily(ui.useDaily);
@@ -525,6 +539,7 @@ function App() {
 
   const showCreatedAtForList =
     showCreatedAt && (activeList === "urgent" || activeList === "backlog");
+  const showCompletedAtForList = showCompletedAt;
 
   const visibleTabs = useMemo(() => {
     const tabs: { id: TaskList; label: string }[] = [URGENT_TAB];
@@ -868,6 +883,7 @@ function App() {
                   onBacklogAction={(id) => void moveTaskList(id)}
                   inputRef={editInputRef}
                   showCreatedAt={showCreatedAtForList}
+                  showCompletedAt={showCompletedAtForList}
                   showBacklogAction={showBacklogActions}
                   backlogActionIcon={backlogActionIcon}
                   backlogActionLabel={backlogActionLabel}
@@ -891,6 +907,7 @@ function App() {
                   onBacklogAction={(id) => void moveTaskList(id)}
                   inputRef={editInputRef}
                   showCreatedAt={showCreatedAtForList}
+                  showCompletedAt={showCompletedAtForList}
                   showBacklogAction={showBacklogActions}
                   backlogActionIcon={backlogActionIcon}
                   backlogActionLabel={backlogActionLabel}
